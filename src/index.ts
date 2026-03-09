@@ -45,14 +45,14 @@ router.get('/health', async (request, env) => {
 		await env.DB.prepare('SELECT 1').first();
 		return jsonResponse({
 			status: 'ok',
-			service: 'ghl-recurrente-bridge',
+			service: 'recurrente-bridge',
 			timestamp: new Date().toISOString(),
 			database: 'connected',
 		});
 	} catch (error) {
 		return jsonResponse({
 			status: 'degraded',
-			service: 'ghl-recurrente-bridge',
+			service: 'recurrente-bridge',
 			timestamp: new Date().toISOString(),
 			database: 'error',
 			error: error instanceof Error ? error.message : 'Unknown DB error',
