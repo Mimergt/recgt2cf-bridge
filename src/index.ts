@@ -73,6 +73,40 @@ router.get('/admin/tenant', handleGetTenant);
 router.post('/admin/tenant', handleUpsertTenant);
 router.delete('/admin/tenant', handleDeleteTenant);
 
+// ─── OAuth Callback (GHL App Installation) ─────────────────
+router.get('/oauth/callback', async (request, env, params) => {
+	// GHL sends a `code` parameter here. For a full marketplace app,
+	// you would exchange this code for an access token.
+	// For our private MVP, we just show a success message to finish the install flow.
+	const code = params.get('code');
+
+	const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>App Instalada</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #f8f9fa; color: #333; text-align: center; }
+    .box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    h2 { color: #2f9e44; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>¡Conexión Exitosa!</h2>
+    <p>La aplicación ha sido autorizada en GoHighLevel.</p>
+    ${code ? '<p style="font-size: 0.8rem; color: #888;">(Código recibido)</p>' : ''}
+    <p>Ya puedes cerrar esta ventana y regresar a GHL.</p>
+  </div>
+</body>
+</html>`;
+
+	return new Response(html, {
+		headers: { 'Content-Type': 'text/html; charset=utf-8' },
+	});
+});
+
 // ─── Root ────────────────────────────────────────────────────
 router.get('/', async () => {
 	return jsonResponse({
