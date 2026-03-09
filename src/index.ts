@@ -110,7 +110,7 @@ router.get('/oauth/callback', async (request, env, params) => {
 
 			// 2. Configure the Custom Payment Provider URLs automatically via API!
 			if (accessToken && locationId) {
-				const providerResponse = await fetch('https://services.leadconnectorhq.com/payments/custom-provider/provider', {
+				const providerResponse = await fetch('https://services.leadconnectorhq.com/payments/custom-provider/connect', {
 					method: 'POST',
 					headers: {
 						'Authorization': `Bearer ${accessToken}`,
@@ -121,9 +121,16 @@ router.get('/oauth/callback', async (request, env, params) => {
 					body: JSON.stringify({
 						name: 'Recurrente',
 						description: 'Integración oficial de Recurrente puenteada en Cloudflare Worker',
-						paymentUrls: {
-							paymentsUrl: 'https://recurrente-bridge.epicgt.workers.dev/payment',
-							queryUrl: 'https://recurrente-bridge.epicgt.workers.dev/api/query'
+						imageUrl: 'https://cdn.recurrente.com/favicon.png', // Logo opcional
+						paymentsUrl: 'https://recurrente-bridge.epicgt.workers.dev/payment',
+						queryUrl: 'https://recurrente-bridge.epicgt.workers.dev/api/query',
+						live: {
+							apiKey: 'apiKey_placeholder',
+							publishableKey: 'pubKey_placeholder'
+						},
+						test: {
+							apiKey: 'test_apiKey_placeholder',
+							publishableKey: 'test_pubKey_placeholder'
 						}
 					})
 				});
