@@ -75,10 +75,76 @@ router.delete('/admin/tenant', handleDeleteTenant);
 
 // ─── OAuth Callback (GHL App Installation) ─────────────────
 router.get('/oauth/callback', async (request, env, params) => {
-	// GHL sends a `code` parameter here. For a full marketplace app,
-	// you would exchange this code for an access token.
-	// For our private MVP, we just show a success message to finish the install flow.
 	const code = params.get('code');
+
+	let successMessage = 'La aplicación ha sido autorizada en GoHighLevel.';
+	let errorMessage = '';
+
+	if (code) {
+		try {
+			// 1. Exchange OAuth code for an Access Token
+			const tokenParams = new URLSearchParams({
+				client_id: env.GHL_CLIENT_ID,
+				client_secret: env.GHL_CLIENT_SECRET,
+				grant_type: 'authorization_code',
+				code: code,
+				redirect_uri: 'https://recurrente-bridge.epicgt.workers.dev/oauth/callback'
+			});
+
+			const tokenResponse = await fetch('https://services.leadconnectorhq.com/oauth/token', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+				body: tokenParams.toString()
+			});
+
+			if (!tokenResponse.ok) {
+				const errText = await tokenResponse.text();
+				throw new Error('Fallo al obtener el token: ' + errText);
+			}
+
+			const tokenData = await tokenResponse.json() as { access_token: string, locationId?: string };
+			const accessToken = tokenData.access_token;
+			const locationId = tokenData.locationId;
+
+			// 2. Configure the Custom Payment Provider URLs automatically via API!
+			if (accessToken && locationId) {
+				const providerResponse = await fetch('https://services.leadconnectorhq.com/payments/custom-provider/provider', {
+					method: 'POST',
+					headers: {
+						'Authorization': `Bearer ${accessToken}`,
+						'Version': '2021-07-28',
+						'Content-Type': 'application/json',
+						'Location-Id': locationId
+					},
+					body: JSON.stringify({
+						name: 'Recurrente',
+						description: 'Integración oficial de Recurrente puenteada en Cloudflare Worker',
+						paymentUrls: {
+							paymentsUrl: 'https://recurrente-bridge.epicgt.workers.dev/payment',
+							queryUrl: 'https://recurrente-bridge.epicgt.workers.dev/api/query'
+						}
+					})
+				});
+
+				const providerResponseText = await providerResponse.text();
+				if (!providerResponse.ok) {
+					console.error('Provider API Error:', providerResponseText);
+					throw new Error('Fallo al registrar las URLs de pago: ' + providerResponseText);
+				}
+
+				successMessage = '¡Las URLs de pago y del puente se configuraron automáticamente con la API v2 de GHL!';
+			} else {
+				errorMessage = 'Se obtuvo el token, pero falta el Location ID para registrar las URLs.';
+			}
+		} catch (error) {
+			console.error('OAuth Error:', error);
+			errorMessage = error instanceof Error ? error.message : String(error);
+		}
+	} else {
+		errorMessage = 'No se recibió ningún código de autorización de GHL.';
+	}
 
 	const html = `<!DOCTYPE html>
 <html lang="es">
@@ -88,16 +154,17 @@ router.get('/oauth/callback', async (request, env, params) => {
   <title>App Instalada</title>
   <style>
     body { font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #f8f9fa; color: #333; text-align: center; }
-    .box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    h2 { color: #2f9e44; }
+    .box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
+    h2 { color: ${errorMessage ? '#d32f2f' : '#2f9e44'}; }
+    .error { color: #d32f2f; font-size: 0.9em; background: #ffebee; padding: 10px; border-radius: 4px; border: 1px solid #ffcdd2; margin-top: 15px; word-break: break-all; text-align: left; }
   </style>
 </head>
 <body>
   <div class="box">
-    <h2>¡Conexión Exitosa!</h2>
-    <p>La aplicación ha sido autorizada en GoHighLevel.</p>
-    ${code ? '<p style="font-size: 0.8rem; color: #888;">(Código recibido)</p>' : ''}
-    <p>Ya puedes cerrar esta ventana y regresar a GHL.</p>
+    <h2>${errorMessage ? 'Hubo un problema' : '¡Conexión Exitosa!'}</h2>
+    <p>${errorMessage ? 'No se pudo completar la configuración automática en GoHighLevel.' : successMessage}</p>
+    ${errorMessage ? `<div class="error"><b>Detalle del error:</b><br>${errorMessage}</div>` : ''}
+    <p style="margin-top:20px;">Ya puedes cerrar esta ventana y regresar a GHL.</p>
   </div>
 </body>
 </html>`;

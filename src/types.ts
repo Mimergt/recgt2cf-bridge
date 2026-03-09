@@ -1,6 +1,7 @@
-// Environment bindings (Cloudflare Worker)
 export interface Env {
     DB: D1Database;
+    GHL_CLIENT_ID: string;
+    GHL_CLIENT_SECRET: string;
 }
 
 // ─── Tenant / Multi-tenant ──────────────────────────────────
