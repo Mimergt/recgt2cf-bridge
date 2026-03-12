@@ -23,14 +23,10 @@ import { jsonResponse, htmlResponse } from './router';
 
 /**
  * This endpoint is loaded inside an iframe by GHL.
- * GHL sends payment data via postMessage event to the iframe.
- *
- * Flow:
- * 1. GHL loads this URL in iframe with locationId as param
- * 2. Page listens for postMessage with payment details
- * 3. Creates a Recurrente checkout
- * 4. Redirects to Recurrente checkout_url
- * 5. After payment, Recurrente redirects to success/cancel URL
+ * 1. Page listens for detection of chargeId
+ * 2. Creates a Recurrente checkout
+ * 3. Redirects to Recurrente checkout_url
+ * 4. After payment, Recurrente redirects to success/cancel URL
  */
 export async function handlePaymentsUrl(
     request: Request,
@@ -39,12 +35,10 @@ export async function handlePaymentsUrl(
 ): Promise<Response> {
     const workerUrl = new URL(request.url).origin;
     const refererHeader = request.headers.get('Referer') || '';
-    const userAgent = request.headers.get('User-Agent') || '';
 
     // Safely encode variables for the script
     const safeWorkerUrl = JSON.stringify(workerUrl);
     const safeReferer = JSON.stringify(refererHeader);
-    const safeUserAgent = JSON.stringify(userAgent);
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -56,8 +50,7 @@ export async function handlePaymentsUrl(
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      display: flex;
-      align-items: center; justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       min-height: 100vh; background: #f8f9fa; color: #333;
     }
     .container { text-align: center; padding: 2rem; width: 100%; max-width: 500px; }
@@ -70,9 +63,9 @@ export async function handlePaymentsUrl(
     p { color: #6c757d; font-size: 0.9rem; }
     .error { color: #e03131; display: none; margin-top: 1rem; }
     #debug-box {
-      max-height: 300px; overflow-y: auto; border: 1px solid #dee2e6;
-      background: #f1f3f5; color: #495057; padding: 12px; border-radius: 8px;
-      margin-top: 2rem; font-family: monospace; font-size: 11px;
+      max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6;
+      background: #f1f3f5; color: #495057; padding: 10px; border-radius: 6px;
+      margin-top: 1.5rem; font-family: monospace; font-size: 10px;
       text-align: left; white-space: pre-wrap; word-break: break-all;
     }
     #manual-form {
@@ -81,14 +74,14 @@ export async function handlePaymentsUrl(
     }
     #manual-form.show { display: block; }
     #manual-form input {
-      width: 100%; padding: 0.75rem; margin: 0.5rem 0 1rem;
+      width: 100%; padding: 0.65rem; margin: 0.4rem 0 0.8rem;
       border: 1px solid #ced4da; border-radius: 4px;
     }
     #manual-form button {
       width: 100%; padding: 0.75rem; background: #4263eb; color: white;
       border: none; border-radius: 4px; cursor: pointer; font-weight: 600;
     }
-    #manual-form label { display: block; text-align: left; font-size: 0.85rem; font-weight: 600; }
+    #manual-form label { display: block; text-align: left; font-size: 0.8rem; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -101,78 +94,61 @@ export async function handlePaymentsUrl(
     <form id="manual-form" onsubmit="return false;">
       <h3 style="margin-bottom: 1rem;">Pago Manual</h3>
       <label>Factura / Charge ID:</label>
-      <input type="text" id="chargeId-input" required placeholder="ID de factura">
+      <input type="text" id="id-in" required placeholder="ID de factura">
       <label>Monto (GTQ):</label>
-      <input type="number" id="amount-input" step="0.01" required placeholder="0.00">
+      <input type="number" id="amt-in" step="0.01" required placeholder="0.00">
       <label>Email:</label>
-      <input type="email" id="email-input" required placeholder="tu@email.com">
-      <button type="submit" id="submit-btn" onclick="submitManual()">Generar Link de Pago</button>
+      <input type="email" id="em-in" required placeholder="tu@email.com">
+      <button type="submit" onclick="submitMan()">Generar Link</button>
     </form>
     
     <pre id="debug-box"></pre>
   </div>
 
   <script>
-    const WORKER_URL = ${safeWorkerUrl};
-    const REFERER = ${safeReferer};
-    const USER_AGENT = ${safeUserAgent};
+    const WORKER = ${safeWorkerUrl};
+    const REF = ${safeReferer};
 
-    function log(label, data) {
-      const box = document.getElementById('debug-box');
-      if (box) {
-        const time = new Date().toLocaleTimeString();
-        box.textContent += '[' + time + '] ' + label + ': ' + (typeof data === 'object' ? JSON.stringify(data) : data) + '\\n';
-        box.scrollTop = box.scrollHeight;
+    function log(m, d) {
+      const b = document.getElementById('debug-box');
+      if (b) {
+        b.textContent += '[' + new Date().toLocaleTimeString() + '] ' + m + ': ' + (d ? JSON.stringify(d) : '') + '\\n';
+        b.scrollTop = b.scrollHeight;
       }
-      console.log(label, data);
+      console.log(m, d);
     }
 
-    function extractId(text) {
-      if (!text) return null;
-      // Match UUID patterns or invoice paths
-      const m = text.match(/\\/invoice\\/([a-zA-Z0-9-]+)/) || text.match(/invoiceId=([a-zA-Z0-9-]+)/);
+    function getID(t) {
+      if (!t) return null;
+      const m = t.match(/\\/invoice\\/([a-zA-Z0-9-]+)/) || t.match(/invoiceId=([a-zA-Z0-9-]+)/);
       return m ? m[1] : null;
     }
 
-    async function start() {
-      log('Iframe Init', { url: location.href, referer: REFERER });
-      
-      const urlParams = new URLSearchParams(location.search);
-      const chargeId = urlParams.get('chargeId') || extractId(location.href) || extractId(REFERER);
-      const locationId = urlParams.get('locationId') || localStorage.getItem('ghl_location_id');
-      const amount = urlParams.get('amount') || '';
+    async function init() {
+      log('Start', { url: location.href, ref: REF });
+      const p = new URLSearchParams(location.search);
+      const cid = p.get('chargeId') || getID(location.href) || getID(REF);
+      const lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
+      const amt = p.get('amount') || '';
 
-      log('Detection results', { chargeId, locationId, amount });
+      log('Data', { cid, lid, amt });
 
-      if (chargeId && locationId) {
-        if (amount && !amount.includes('{')) {
-           log('Processing with URL data', { chargeId, amount });
-           await createCheckout({ chargeId, locationId, amount, name: urlParams.get('name'), email: urlParams.get('contactEmail') });
+      if (cid && lid) {
+        if (amt && !amt.includes('{')) {
+           log('Create direct');
+           await go({ chargeId: cid, locationId: lid, amount: amt, email: p.get('contactEmail') });
         } else {
-           log('Fetching full details from server...', { chargeId, locationId });
-           await createCheckout({ chargeId, locationId, amount: '{amount}' }); // Server will resolve {amount}
+           log('Resolve server');
+           await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         }
       } else {
-        log('Missing required data, showing form', { chargeId, locationId });
-        showManual();
+        log('Manual mode');
+        show();
       }
     }
 
-    async function createCheckout(payload) {
+    async function go(pay) {
       try {
-        document.getElementById('status-text').textContent = 'Creando link de pago...';
-        const res = await fetch(WORKER_URL + '/api/create-checkout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-            let raw = event.data;
-            showDebug('🔍 Raw event.data (type: ' + (typeof raw) + ')', raw);
-
-            // Try to parse if it's a string
-            if (typeof raw === 'string') {
-              try { 
-                raw = JSON.parse(raw);
-                showDebug('✅ Successfully parsed JSON string', raw);
-              } catch(e) { 
                 showDebug('⚠️ Could not parse as JSON', { error: e.message, original: raw });
               }
             }
