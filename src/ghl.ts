@@ -122,7 +122,7 @@ export async function handlePaymentsUrl(
 
     async function init() {
       const docRef = document.referrer || '';
-      log('Protocol Scout V5', { url: location.href, docRef: docRef });
+      log('Protocol Universal V6', { url: location.href, docRef: docRef });
       
       const p = new URLSearchParams(location.search);
       const HEX_RGX = /[a-fA-F0-9]{24}/g;
@@ -137,13 +137,13 @@ export async function handlePaymentsUrl(
         return (matches && matches.length > 0) ? matches[matches.length - 1] : null;
       }
 
-      // Initial check from all possible URL/Referrer sources
+      // 1. Detección inmediata mejorada
       let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef);
       let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
 
-      // Attempt server-side resolution if we caught an ID but no account info
+      // Resolución de cuenta si tenemos ID de factura
       if (isReal(cid) && (!isReal(lid) || lid === 'unknown')) {
-          log('Resolving account for', cid);
+          log('Resolving account...', cid);
           try {
             const res = await fetch(WORKER + '/api/resolve-location', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -151,35 +151,37 @@ export async function handlePaymentsUrl(
             });
             const d = await res.json();
             if (d.success && d.locationId) {
-              log('Account Found!', d.locationId);
+              log('Resolved!', d.locationId);
               lid = d.locationId;
               localStorage.setItem('ghl_location_id', lid);
             }
           } catch(e) {}
       }
 
-      // Proceed immediately if we have it all
       if (isReal(cid) && isReal(lid)) {
-        log('Redirecting auto-detect', cid);
+        log('Auto-detect success', cid);
         await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         return;
       }
 
-      // GHL PROTOCOL LISTENER
+      // 2. Receptor de mensajes Universal
       window.addEventListener('message', async (e) => {
         try {
           const raw = e.data;
           if (!raw) return;
-          log('Msg In', { origin: e.origin, type: typeof raw });
+          
+          log('Incoming ' + e.origin, { type: typeof raw });
 
           function hunt(obj, depth = 0) {
             if (!obj || depth > 8) return null;
             if (typeof obj === 'string') return findInStr(obj);
             if (typeof obj !== 'object') return null;
             
+            // BUSCAR EN EL OBJETO RESPONSE DATA DE GHL
             const potential = obj.chargeId || obj.id || obj.invoiceId || 
                              (obj.invoice && (obj.invoice.id || obj.invoice._id)) ||
-                             (obj.payload && (obj.payload.chargeId || obj.payload.id || obj.payload.invoiceId));
+                             (obj.payload && (obj.payload.chargeId || obj.payload.id || obj.payload.invoiceId)) ||
+                             (obj.responseData && (obj.responseData.invoiceId || obj.responseData.id));
             
             if (isReal(potential)) return potential;
             
@@ -198,41 +200,40 @@ export async function handlePaymentsUrl(
           }
 
           if (id) {
-            log('DATA CAPTURED!', id);
+            log('CAUGHT!', id);
             await go({ chargeId: id, locationId: lid || 'unknown', amount: '{amount}' });
           }
-        } catch (err) { log('Capture Error', err.message); }
+        } catch (err) { log('Listener Err', err.message); }
       });
 
-      // THE GHL MASTER HANDSHAKE
+      // 3. HANDSHAKE UNIVERSAL V6 (JSON Strings para evitar errores de parseo en GHL)
       function sendHandshake() {
-        log('Sending Handshake...');
+        log('Sending Multi-Path Handshake...');
         const handshakes = [
-            'ghl-custom-component-ready',
-            { source: 'ghl-custom-component', action: 'ready' },
-            { type: 'READY' },
-            { type: 'PAYMENT_PROVIDER_READY' },
-            { action: 'get_charge' }
+            JSON.stringify({ type: 'READY_TO_RECEIVE_DATA', source: 'ghl-custom-component' }),
+            JSON.stringify({ type: 'PAYMENT_PROVIDER_READY', source: 'ghl-custom-component' }),
+            JSON.stringify({ action: 'ghl-custom-component-ready', source: 'ghl-custom-component' }),
+            'ghl-custom-component-ready'
         ];
         
         handshakes.forEach(h => {
           try {
             window.parent.postMessage(h, '*');
-            if (typeof h !== 'string') window.parent.postMessage(JSON.stringify(h), '*');
+            window.top.postMessage(h, '*');
           } catch(e) {}
         });
       }
 
       sendHandshake();
-      const interval = setInterval(sendHandshake, 4000);
+      const interval = setInterval(sendHandshake, 3000);
 
       setTimeout(() => {
         clearInterval(interval);
         if (isReal(cid)) {
-           log('Timeout: Proceeding with ID', cid);
+           log('Force proceed with', cid);
            go({ chargeId: cid, locationId: lid || 'unknown', amount: '{amount}' });
         } else {
-           log('Timeout: No automated data');
+           log('Automatic detection timeout');
            show();
         }
       }, 15000);
