@@ -166,6 +166,7 @@ export async function handlePaymentsUrl(
         const raw = e.data;
         if (!raw) return;
         
+        log('Msg from ' + e.origin, { type: typeof raw, keys: (raw && typeof raw === 'object') ? Object.keys(raw) : 'none' });
         function extract(o) {
           if (!o || typeof o !== 'object') return null;
           const id = o.chargeId || o.id || o.invoiceId || (o.invoice && (o.invoice.id || o.invoice._id)) || (o.payload && o.payload.id);
@@ -197,14 +198,14 @@ export async function handlePaymentsUrl(
       log('Pings sent');
 
       setTimeout(() => {
-        if (cid && !cid.includes('{')) {
-           log('Timeout: Proceeding with found ID', cid);
-           go({ chargeId: cid, locationId: lid || 'unknown', amount: p.get('amount') || '{amount}' });
+        if (cid && !cid.includes('{') && lid && lid !== 'null') {
+           log('Timeout: Proceeding with URL ID', cid);
+           go({ chargeId: cid, locationId: lid, amount: p.get('amount') || '{amount}' });
         } else {
-           log('Timeout: No ID found, showing form');
+           log('Timeout: No clear data found');
            show();
         }
-      }, 10000);
+      }, 8000);
     }
 
     async function go(pay) {
