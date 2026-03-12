@@ -67,6 +67,14 @@ router.get('/payment', handlePaymentsUrl);
 router.get('/payment/success', handlePaymentSuccess);
 router.get('/payment/cancel', handlePaymentCancel);
 router.post('/api/create-checkout', handleCreateCheckout);
+router.post('/api/resolve-location', async (req, env) => {
+	const body = await req.json() as any;
+	return handleQueryUrl(new Request(req.url, {
+		method: 'POST',
+		headers: req.headers,
+		body: JSON.stringify({ ...body, type: 'resolve_location' })
+	}), env, new URL(req.url).searchParams);
+});
 router.post('/api/query', handleQueryUrl);
 
 // ─── Admin / Tenant Management ───────────────────────────────
