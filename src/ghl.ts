@@ -122,86 +122,59 @@ export async function handlePaymentsUrl(
 
     async function init() {
       const docRef = document.referrer || '';
-      log('Start', { url: location.href, headerRef: REF, docRef: docRef, name: window.name });
+      log('Scavenger V3 Start', { url: location.href, docRef: docRef });
       
       const p = new URLSearchParams(location.search);
-      
-      // Try every possible source for the ID
-      function findID() {
-        return p.get('chargeId') || getID(location.href) || getID(REF) || getID(docRef) || getID(window.name) || null;
+      const HEX_RGX = /[a-fA-F0-9]{24}/g;
+
+      function findInStr(s) {
+        if (!s) return null;
+        const matches = s.match(HEX_RGX);
+        return matches ? matches[0] : null;
       }
 
-      let cid = findID();
+      function isReal(id) {
+        return id && typeof id === 'string' && !id.includes('{') && id.length > 5;
+      }
+
+      let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef);
       let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
 
-      // If we have CID but no LID, ask server to resolve
-      if (cid && !cid.includes('{') && (!lid || lid === 'null')) {
-        log('Resolving location for', cid);
-        try {
-          const res = await fetch(WORKER + '/api/resolve-location', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chargeId: cid })
-          });
-          const d = await res.json();
-          if (d.success && d.locationId) {
-            log('Resolved!', d.locationId);
-            lid = d.locationId;
-            localStorage.setItem('ghl_location_id', lid);
-          }
-        } catch(e) { log('Resolution error', e.message); }
-      }
-
-      // Success if we have both
-      if (cid && !cid.includes('{') && lid && lid !== 'null') {
-        log('Auto-detected', { cid, lid });
-        await go({ chargeId: cid, locationId: lid, amount: p.get('amount') || '{amount}' });
+      if (isReal(cid) && isReal(lid)) {
+        log('Auto-detected ID', cid);
+        await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         return;
       }
 
-      log('Super Scavenger V2 Active');
-      if (lid && lid !== 'null') localStorage.setItem('ghl_location_id', lid);
-
-      // Listen for EVERYTHING - Add listener BEFORE pings
       window.addEventListener('message', async (e) => {
         try {
           const raw = e.data;
           if (!raw) return;
-          
-          // Debug incoming message properties safely
-          let typeStr = typeof raw;
-          let keys = 'none';
-          try { keys = (raw && typeof raw === 'object') ? Object.keys(raw).join(',') : 'n/a'; } catch(e) {}
-          
-          log('Msg from ' + e.origin, { type: typeStr, keys: keys });
+          log('Msg from ' + e.origin, { type: typeof raw });
 
-          // Deep search function with Proxy safety
-          function findId(obj, depth = 0) {
+          function hunt(obj, depth = 0) {
             if (!obj || depth > 5) return null;
+            if (typeof obj === 'string') return findInStr(obj);
             if (typeof obj !== 'object') return null;
             
-            // Look for common ID keys
             const id = obj.chargeId || obj.id || obj.invoiceId || 
                        (obj.invoice && (obj.invoice.id || obj.invoice._id)) ||
-                       (obj.payload && (obj.payload.chargeId || obj.payload.id || obj.payload.invoiceId));
+                       (obj.payload && (obj.payload.chargeId || obj.payload.id));
             
-            if (id && typeof id === 'string' && !id.includes('{') && id.length > 5) return id;
+            if (isReal(id)) return id;
             
-            // Recursively search children
             for (let k in obj) {
               try {
-                if (k === 'source' || k === 'origin') continue;
-                const res = findId(obj[k], depth + 1);
+                const res = hunt(obj[k], depth + 1);
                 if (res) return res;
               } catch(err) {}
             }
             return null;
           }
 
-          let id = findId(raw);
-          
-          // Try parsing strings
-          if (!id && typeof raw === 'string' && (raw.includes('{') || raw.includes('invoice'))) {
-            try { id = findId(JSON.parse(raw)); } catch(err) {}
+          let id = hunt(raw);
+          if (!id && typeof raw === 'string' && raw.includes('{')) {
+            try { id = hunt(JSON.parse(raw)); } catch(err) {}
           }
 
           if (id) {
@@ -213,22 +186,11 @@ export async function handlePaymentsUrl(
         }
       });
 
-      // Aggressive GHL Handshakes - Tried every known format
       function doPings() {
-        log('Pinging GHL...');
-        const pings = [
-          { type: 'PAYMENT_PROVIDER_READY' },
-          { event: 'READY' },
-          { action: 'get_charge' },
-          { source: 'ghl-custom-component', type: 'PAYMENT_PROVIDER_READY' },
-          'READY',
-          'payment_ready'
-        ];
-        pings.forEach(p => {
-          try {
-            window.parent.postMessage(p, '*');
-            if (typeof p !== 'string') window.parent.postMessage(JSON.stringify(p), '*');
-          } catch(e) {}
+        log('Pinging...');
+        const targets = ['ghl-custom-component-ready', { type: 'READY' }, { action: 'get_charge' }];
+        targets.forEach(t => { 
+            try { window.parent.postMessage(t, '*'); } catch(e) {}
         });
       }
 
@@ -237,11 +199,11 @@ export async function handlePaymentsUrl(
 
       setTimeout(() => {
         clearInterval(intv);
-        if (cid && !cid.includes('{') && lid && lid !== 'null') {
-           log('Timeout: Falling back to URL ID', cid);
-           go({ chargeId: cid, locationId: lid, amount: '{amount}' });
+        if (isReal(cid)) {
+           log('Timeout: Forcing URL ID', cid);
+           go({ chargeId: cid, locationId: lid || 'unknown', amount: '{amount}' });
         } else {
-           log('Timeout: No automated data');
+           log('Timeout: No ID found');
            show();
         }
       }, 15000);
