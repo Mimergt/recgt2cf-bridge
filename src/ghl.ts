@@ -282,53 +282,52 @@ export async function handlePaymentsUrl(
             showDebug('⚠️ Detected placeholder values in URL — will NOT call create-checkout with placeholders', { charge: rawCharge, amount: rawAmount });
 
             // First, try to detect invoice data embedded in global objects (some GHL setups expose data synchronously)
-            try {
-              const tryGlobalInvoice = (() => {
-                try {
-                  const candidates = [
-                    window.__GHL__, window.parent && window.parent.__GHL__, 
-                    window.ghl, window.parent && window.parent.ghl, 
-                    window.responseData, window.parent && window.parent.responseData
-                  ];
-                  showDebug('🔍 Checking candidates for global invoice', { count: candidates.length });
-                  for (const c of candidates) {
-                    if (!c) continue;
-                    showDebug('🔎 Inspecting candidate', { 
-                      keys: Object.keys(c).slice(0, 10), 
-                      hasInvoice: !!c.invoice,
-                      isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
-                    });
-                    if (c.invoice) return c.invoice;
-                    if (c.payload && c.payload.invoice) return c.payload.invoice;
-                    if (c.data && c.data.invoice) return c.data.invoice;
-                    // Directly check if candidate IS the invoice (for responseData style)
-                    if (c.total || c.amountDue || c.invoiceNumber) return c;
-                  }
-                } catch (e) { /* ignore cross-origin */ }
-                return null;
-              })();
+             try {
+               const tryGlobalInvoice = (() => {
+                 const candidates = [];
+                 try { if (window.__GHL__) candidates.push({ name: 'window.__GHL__', obj: window.__GHL__ }); } catch(e){}
+                 try { if (window.ghl) candidates.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){}
+                 try { if ((window as any).responseData) candidates.push({ name: 'window.responseData', obj: (window as any).responseData }); } catch(e){}
+                 try { if (window.parent && window.parent.__GHL__) candidates.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){}
+                 try { if (window.parent && (window.parent as any).ghl) candidates.push({ name: 'parent.ghl', obj: (window.parent as any).ghl }); } catch(e){}
+                 try { if (window.parent && (window.parent as any).responseData) candidates.push({ name: 'parent.responseData', obj: (window.parent as any).responseData }); } catch(e){}
 
-              if (tryGlobalInvoice) {
-                showDebug('📥 Found invoice in global object, will map and create checkout', tryGlobalInvoice);
-                const inv = tryGlobalInvoice;
-                const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
-                const mapped = {
-                  chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
-                  amount: inv.total || inv.invoiceTotal || inv.amountDue || (item ? item.amount : null),
-                  currency: inv.currency || (item ? item.currency : null) || 'GTQ',
-                  contactName: inv.contactDetails?.name || inv.contactDetails?.companyName || '',
-                  contactEmail: inv.contactDetails?.email || '',
-                  description: item ? item.name || item.description || inv.name || 'Pago GHL' : inv.name || 'Pago GHL',
-                  locationId: inv.altId || (inv.layout && inv.layout.altId) || null
-                };
-                if (mapped.amount && Number(mapped.amount) > 0) {
-                  processPayment(mapped);
-                  return;
-                }
-              }
-            } catch (e) {
-              showDebug('⚠️ Error while checking global invoice object', { error: e.message });
-            }
+                 showDebug('🔍 Checking candidates for global invoice', { found: candidates.length });
+                 for (const cand of candidates) {
+                   const c = cand.obj;
+                   showDebug('🔎 Inspecting candidate: ' + cand.name, { 
+                     hasInvoice: !!c.invoice,
+                     isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
+                   });
+                   if (c.invoice) return c.invoice;
+                   if (c.payload && c.payload.invoice) return c.payload.invoice;
+                   if (c.data && c.data.invoice) return c.data.invoice;
+                   if (c.total || c.amountDue || c.invoiceNumber) return c;
+                 }
+                 return null;
+               })();
+
+               if (tryGlobalInvoice) {
+                 showDebug('📥 Found invoice in global object', { source: 'sync', total: tryGlobalInvoice.total });
+                 const inv = tryGlobalInvoice;
+                 const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
+                 const mapped = {
+                   chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
+                   amount: inv.total || inv.invoiceTotal || inv.amountDue || (item ? item.amount : null),
+                   currency: inv.currency || (item ? item.currency : null) || 'GTQ',
+                   contactName: inv.contactDetails?.name || inv.contactDetails?.companyName || '',
+                   contactEmail: inv.contactDetails?.email || '',
+                   description: item ? item.name || item.description || inv.name || 'Pago GHL' : inv.name || 'Pago GHL',
+                   locationId: inv.altId || (inv.layout && inv.layout.altId) || null
+                 };
+                 if (mapped.amount && Number(mapped.amount) > 0) {
+                   processPayment(mapped);
+                   return;
+                 }
+               }
+             } catch (e) {
+               showDebug('⚠️ Error while checking global invoice object', { error: e.message });
+             }
 
             // Wait briefly for a postMessage or global invoice to arrive so we don't
             // prematurely redirect to a stale global pending checkout.
@@ -380,31 +379,30 @@ export async function handlePaymentsUrl(
               // also short-circuit if parent/window has invoice immediately
               try {
                 const tryGlobalInvoice2 = (() => {
-                  try {
-                    const cands = [
-                      window.__GHL__, window.parent && window.parent.__GHL__, 
-                      window.ghl, window.parent && window.parent.ghl,
-                      window.responseData, window.parent && window.parent.responseData
-                    ];
-                    showDebug('🔍 Checking candidates for global invoice (short-circuit)', { count: cands.length });
-                    for (const c of cands) {
-                      if (!c) continue;
-                      showDebug('🔎 Inspecting candidate (short-circuit)', { 
-                        keys: Object.keys(c).slice(0, 10), 
-                        hasInvoice: !!c.invoice,
-                        isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
-                      });
-                      if (c.invoice) return c.invoice;
-                      if (c.payload && c.payload.invoice) return c.payload.invoice;
-                      if (c.data && c.data.invoice) return c.data.invoice;
-                      // Directly check if candidate IS the invoice
-                      if (c.total || c.amountDue || c.invoiceNumber) return c;
-                    }
-                  } catch(e) {}
+                  const cands = [];
+                  try { if (window.__GHL__) cands.push({ name: 'window.__GHL__', obj: window.__GHL__ }); } catch(e){}
+                  try { if (window.ghl) cands.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){}
+                  try { if ((window as any).responseData) cands.push({ name: 'window.responseData', obj: (window as any).responseData }); } catch(e){}
+                  try { if (window.parent && window.parent.__GHL__) cands.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){}
+                  try { if (window.parent && (window.parent as any).ghl) cands.push({ name: 'parent.ghl', obj: (window.parent as any).ghl }); } catch(e){}
+                  try { if (window.parent && (window.parent as any).responseData) cands.push({ name: 'parent.responseData', obj: (window.parent as any).responseData }); } catch(e){}
+
+                  showDebug('🔍 Checking candidates for global invoice (short-circuit)', { found: cands.length });
+                  for (const cand of cands) {
+                    const c = cand.obj;
+                    showDebug('🔎 Inspecting candidate (short-circuit): ' + cand.name, { 
+                      hasInvoice: !!c.invoice,
+                      isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
+                    });
+                    if (c.invoice) return c.invoice;
+                    if (c.payload && c.payload.invoice) return c.payload.invoice;
+                    if (c.data && c.data.invoice) return c.data.invoice;
+                    if (c.total || c.amountDue || c.invoiceNumber) return c;
+                  }
                   return null;
                 })();
                 if (tryGlobalInvoice2) {
-                  const inv = tryGlobalInvoice2;
+                  showDebug('📥 Found invoice in global object', { source: 'short-circuit', total: tryGlobalInvoice2.total });
                   const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
                   const mapped2 = {
                     chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
