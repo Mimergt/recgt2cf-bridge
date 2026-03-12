@@ -158,81 +158,93 @@ export async function handlePaymentsUrl(
         return;
       }
 
-      log('Super Scavenger Active');
+      log('Super Scavenger V2 Active');
       if (lid && lid !== 'null') localStorage.setItem('ghl_location_id', lid);
 
-      // Listen for EVERYTHING
+      // Listen for EVERYTHING - Add listener BEFORE pings
       window.addEventListener('message', async (e) => {
-        const raw = e.data;
-        if (!raw) return;
-        
-        // Log details of any incoming message to help us identify GHL's format
-        const keys = (typeof raw === 'object' && raw !== null) ? Object.keys(raw).join(',') : 'none';
-        log('Msg from ' + e.origin, { type: typeof raw, keys: keys });
-        
-        if (typeof raw === 'string' && raw.includes('{')) {
-           log('Stringified JSON detected');
-        }
+        try {
+          const raw = e.data;
+          if (!raw) return;
+          
+          // Debug incoming message properties safely
+          let typeStr = typeof raw;
+          let keys = 'none';
+          try { keys = (raw && typeof raw === 'object') ? Object.keys(raw).join(',') : 'n/a'; } catch(e) {}
+          
+          log('Msg from ' + e.origin, { type: typeStr, keys: keys });
 
-        // Deep search for any ID
-        function findIn(obj, depth = 0) {
-          if (!obj || depth > 4) return null;
-          if (typeof obj !== 'object') return null;
-          
-          const id = obj.chargeId || obj.id || obj.invoiceId || (obj.invoice && (obj.invoice.id || obj.invoice._id)) || (obj.payload && (obj.payload.chargeId || obj.payload.id));
-          if (id && !String(id).includes('{')) return id;
-          
-          for (let k in obj) {
-            const res = findIn(obj[k], depth + 1);
-            if (res) return res;
+          // Deep search function with Proxy safety
+          function findId(obj, depth = 0) {
+            if (!obj || depth > 5) return null;
+            if (typeof obj !== 'object') return null;
+            
+            // Look for common ID keys
+            const id = obj.chargeId || obj.id || obj.invoiceId || 
+                       (obj.invoice && (obj.invoice.id || obj.invoice._id)) ||
+                       (obj.payload && (obj.payload.chargeId || obj.payload.id || obj.payload.invoiceId));
+            
+            if (id && typeof id === 'string' && !id.includes('{') && id.length > 5) return id;
+            
+            // Recursively search children
+            for (let k in obj) {
+              try {
+                if (k === 'source' || k === 'origin') continue;
+                const res = findId(obj[k], depth + 1);
+                if (res) return res;
+              } catch(err) {}
+            }
+            return null;
           }
-          return null;
-        }
 
-        let idFound = findIn(raw);
-        if (!idFound && typeof raw === 'string') {
-          try { idFound = findIn(JSON.parse(raw)); } catch(err) {}
-        }
+          let id = findId(raw);
+          
+          // Try parsing strings
+          if (!id && typeof raw === 'string' && (raw.includes('{') || raw.includes('invoice'))) {
+            try { id = findId(JSON.parse(raw)); } catch(err) {}
+          }
 
-        if (idFound) {
-          log('ID scavenged via MSG!', idFound);
-          await go({ chargeId: idFound, locationId: lid || 'unknown', amount: '{amount}' });
+          if (id) {
+            log('ID SCAVENGED!', id);
+            await go({ chargeId: id, locationId: lid || 'unknown', amount: '{amount}' });
+          }
+        } catch (err) {
+          log('Listener Error', err.message);
         }
       });
 
-      // Aggressive GHL Handshakes
-      function ping() {
-        log('Sending Handshakes...');
-        const targets = [
-          { type: 'READY' },
-          { type: 'init' },
+      // Aggressive GHL Handshakes - Tried every known format
+      function doPings() {
+        log('Pinging GHL...');
+        const pings = [
+          { type: 'PAYMENT_PROVIDER_READY' },
+          { event: 'READY' },
           { action: 'get_charge' },
-          { source: 'ghl-custom-component', event: 'ready' },
           { source: 'ghl-custom-component', type: 'PAYMENT_PROVIDER_READY' },
           'READY',
           'payment_ready'
         ];
-        targets.forEach(t => {
-          window.parent.postMessage(t, '*');
-          if (typeof t !== 'string') window.parent.postMessage(JSON.stringify(t), '*');
+        pings.forEach(p => {
+          try {
+            window.parent.postMessage(p, '*');
+            if (typeof p !== 'string') window.parent.postMessage(JSON.stringify(p), '*');
+          } catch(e) {}
         });
       }
 
-      ping();
-      
-      // Auto-retry pings every 3s
-      const pingInterval = setInterval(ping, 3000);
+      doPings();
+      const intv = setInterval(doPings, 4000);
 
       setTimeout(() => {
-        clearInterval(pingInterval);
+        clearInterval(intv);
         if (cid && !cid.includes('{') && lid && lid !== 'null') {
-           log('Timeout: Using URL-detected ID', cid);
+           log('Timeout: Falling back to URL ID', cid);
            go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         } else {
-           log('Timeout: No automated data, showing form');
+           log('Timeout: No automated data');
            show();
         }
-      }, 12000);
+      }, 15000);
     }
 
     async function go(pay) {
