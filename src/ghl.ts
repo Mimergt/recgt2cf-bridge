@@ -285,13 +285,16 @@ export async function handlePaymentsUrl(
             try {
               const tryGlobalInvoice = (() => {
                 try {
-                  const candidates = [
-                    window.__GHL__, window.parent && window.parent.__GHL__, 
-                    window.ghl, window.parent && window.parent.ghl, 
-                    window.responseData, window.parent && window.parent.responseData
+                    (window as any).responseData, (window.parent as any)?.responseData
                   ];
+                  showDebug('🔍 Checking candidates for global invoice', { count: candidates.length });
                   for (const c of candidates) {
                     if (!c) continue;
+                    showDebug('🔎 Inspecting candidate', { 
+                      keys: Object.keys(c).slice(0, 10), 
+                      hasInvoice: !!c.invoice,
+                      isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
+                    });
                     if (c.invoice) return c.invoice;
                     if (c.payload && c.payload.invoice) return c.payload.invoice;
                     if (c.data && c.data.invoice) return c.data.invoice;
@@ -375,11 +378,19 @@ export async function handlePaymentsUrl(
               try {
                 const tryGlobalInvoice2 = (() => {
                   try {
-                      window.__GHL__, window.parent && window.parent.__GHL__, 
-                      window.ghl, window.parent && window.parent.ghl,
-                      window.responseData, window.parent && window.parent.responseData
+                    const cands = [
+                      (window as any).__GHL__, (window.parent as any)?.__GHL__, 
+                      (window as any).ghl, (window.parent as any)?.ghl,
+                      (window as any).responseData, (window.parent as any)?.responseData
+                    ];
+                    showDebug('🔍 Checking candidates for global invoice (short-circuit)', { count: cands.length });
                     for (const c of cands) {
                       if (!c) continue;
+                      showDebug('🔎 Inspecting candidate (short-circuit)', { 
+                        keys: Object.keys(c).slice(0, 10), 
+                        hasInvoice: !!c.invoice,
+                        isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
+                      });
                       if (c.invoice) return c.invoice;
                       if (c.payload && c.payload.invoice) return c.payload.invoice;
                       if (c.data && c.data.invoice) return c.data.invoice;
