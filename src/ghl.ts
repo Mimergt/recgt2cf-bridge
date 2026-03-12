@@ -121,59 +121,82 @@ export async function handlePaymentsUrl(
     }
 
     async function init() {
-      log('Start', { url: location.href, ref: REF });
+      const docRef = document.referrer || '';
+      log('Start', { url: location.href, headerRef: REF, docRef: docRef });
+      
       const p = new URLSearchParams(location.search);
       
-      // Initial check from URL
-      let cid = p.get('chargeId');
+      // Try every possible source for the ID
+      function findID() {
+        return p.get('chargeId') || getID(location.href) || getID(REF) || getID(docRef) || null;
+      }
+
+      let cid = findID();
       let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
       let amt = p.get('amount') || '';
 
-      // If we have real data (not placeholders), start immediately
+      // Success if we have real data from URL/Referrer
       if (cid && !cid.includes('{') && lid) {
-        log('Immediate start (URL)');
+        log('Auto-detected ID', cid);
         await go({ chargeId: cid, locationId: lid, amount: amt, email: p.get('contactEmail') });
         return;
       }
 
-      log('Waiting for GHL data (postMessage)...');
-      
-      // Save lid if found
+      log('Waiting for GHL (postMessage / Background)...');
       if (lid && lid !== 'null') localStorage.setItem('ghl_location_id', lid);
 
-      // Listen for GHL data
+      // Listen for data from parent
       window.addEventListener('message', async (e) => {
         const raw = e.data;
         if (!raw) return;
         
-        log('Msg received', { type: typeof raw, keys: typeof raw === 'object' ? Object.keys(raw) : 'n/a' });
+        // Robust extraction from any object
+        function extract(o) {
+          if (!o || typeof o !== 'object') return null;
+          // Try known paths
+          const id = o.chargeId || o.id || o.invoiceId || (o.invoice && (o.invoice.id || o.invoice._id)) || (o.payload && o.payload.id);
+          const loc = o.locationId || o.locId || lid;
+          return id && !String(id).includes('{') ? { id, loc, amt: o.amount || o.total } : null;
+        }
+
+        let found = extract(raw) || extract(raw.payload) || extract(raw.data);
         
-        // Convert Proxy/Complex objects to plain ones
-        let data = {};
-        try { data = JSON.parse(JSON.stringify(raw)); } catch(err) { data = raw; }
-        
-        const payload = data.payload || data.data || data;
-        const targetCid = payload.chargeId || payload.id || (payload.invoice && (payload.invoice.id || payload.invoice._id));
-        const targetLid = payload.locationId || lid;
-        
-        if (targetCid && !String(targetCid).includes('{')) {
-          log('ID found in msg!', targetCid);
-          if (targetLid) {
-            await go({ chargeId: targetCid, locationId: targetLid, amount: payload.amount || '{amount}' });
-          } else {
-            log('Wait for lid');
-          }
+        // If it's a string, try parsing
+        if (!found && typeof raw === 'string' && raw.includes('{')) {
+          try { 
+            const parsed = JSON.parse(raw);
+            found = extract(parsed) || extract(parsed.payload) || extract(parsed.data);
+          } catch(err) {}
+        }
+
+        if (found && found.id) {
+          log('ID caught via MSG!', found.id);
+          await go({ chargeId: found.id, locationId: found.loc || lid, amount: found.amt || '{amount}' });
         }
       });
 
-      // Ping parent for data
-      window.parent.postMessage({ type: 'REQUEST_PAYMENT_DATA', action: 'get_charge' }, '*');
-      window.parent.postMessage({ action: 'get_charge' }, '*');
+      // Send multiple ping formats to trigger GHL data
+      const pings = [
+        { type: 'REQUEST_PAYMENT_DATA' },
+        { action: 'get_charge' },
+        { type: 'PAYMENT_PROVIDER_READY' },
+        { event: 'ready' }
+      ];
+      pings.forEach(msg => {
+        window.parent.postMessage(msg, '*');
+        window.parent.postMessage(JSON.stringify(msg), '*');
+      });
       
-      // 10s timeout to show manual mode
+      log('Pings sent');
+
       setTimeout(() => {
-        log('Timeout reached');
-        show();
+        if (cid && !cid.includes('{')) {
+           log('Timeout: Proceeding with found ID', cid);
+           go({ chargeId: cid, locationId: lid || 'unknown', amount: amt || '{amount}' });
+        } else {
+           log('Timeout: No ID found, showing form');
+           show();
+        }
       }, 10000);
     }
 
