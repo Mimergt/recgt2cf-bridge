@@ -122,10 +122,14 @@ export async function handlePaymentsUrl(
 
     async function init() {
       const docRef = document.referrer || '';
-      log('Scavenger V4 active', { url: location.href, docRef: docRef });
+      log('Protocol Scout V5', { url: location.href, docRef: docRef });
       
       const p = new URLSearchParams(location.search);
       const HEX_RGX = /[a-fA-F0-9]{24}/g;
+
+      function isReal(id) {
+        return id && typeof id === 'string' && !id.includes('{') && id.length > 10;
+      }
 
       function findInStr(s) {
         if (!s) return null;
@@ -133,17 +137,13 @@ export async function handlePaymentsUrl(
         return (matches && matches.length > 0) ? matches[matches.length - 1] : null;
       }
 
-      function isReal(id) {
-        return id && typeof id === 'string' && !id.includes('{') && id.length > 10;
-      }
-
-      // Try to find IDs in URL or Referrer (even if partial)
+      // Initial check from all possible URL/Referrer sources
       let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef);
       let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
 
-      // If we have CID but no LID, ask server to resolve who owns this invoice
+      // Attempt server-side resolution if we caught an ID but no account info
       if (isReal(cid) && (!isReal(lid) || lid === 'unknown')) {
-          log('Resolving owner for', cid);
+          log('Resolving account for', cid);
           try {
             const res = await fetch(WORKER + '/api/resolve-location', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -151,40 +151,38 @@ export async function handlePaymentsUrl(
             });
             const d = await res.json();
             if (d.success && d.locationId) {
-              log('Fixed Location!', d.locationId);
+              log('Account Found!', d.locationId);
               lid = d.locationId;
               localStorage.setItem('ghl_location_id', lid);
             }
           } catch(e) {}
       }
 
+      // Proceed immediately if we have it all
       if (isReal(cid) && isReal(lid)) {
-        log('Auto-detected ID', { cid, lid });
+        log('Redirecting auto-detect', cid);
         await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         return;
       }
 
-      // Aggressive cross-origin message listener
+      // GHL PROTOCOL LISTENER
       window.addEventListener('message', async (e) => {
         try {
           const raw = e.data;
           if (!raw) return;
-          log('Incoming message from ' + e.origin, { type: typeof raw });
+          log('Msg In', { origin: e.origin, type: typeof raw });
 
           function hunt(obj, depth = 0) {
             if (!obj || depth > 8) return null;
             if (typeof obj === 'string') return findInStr(obj);
             if (typeof obj !== 'object') return null;
             
-            // Search known keys
-            const keys = ['chargeId', 'id', 'invoiceId', 'ghl_charge_id', 'invoice_id'];
-            for (let k of keys) {
-                if (isReal(obj[k])) return obj[k];
-            }
-            if (obj.invoice && isReal(obj.invoice.id)) return obj.invoice.id;
-            if (obj.payload && (isReal(obj.payload.chargeId) || isReal(obj.payload.id))) return obj.payload.chargeId || obj.payload.id;
-
-            // Deep hunt in all properties
+            const potential = obj.chargeId || obj.id || obj.invoiceId || 
+                             (obj.invoice && (obj.invoice.id || obj.invoice._id)) ||
+                             (obj.payload && (obj.payload.chargeId || obj.payload.id || obj.payload.invoiceId));
+            
+            if (isReal(potential)) return potential;
+            
             for (let k in obj) {
               try {
                 const res = hunt(obj[k], depth + 1);
@@ -195,41 +193,43 @@ export async function handlePaymentsUrl(
           }
 
           let id = hunt(raw);
-          if (!id && typeof raw === 'string' && (raw.includes('{') || raw.includes('invoice'))) {
+          if (!id && typeof raw === 'string' && raw.includes('{')) {
             try { id = hunt(JSON.parse(raw)); } catch(err) {}
           }
 
           if (id) {
-            log('ID CAPTURED!', id);
+            log('DATA CAPTURED!', id);
             await go({ chargeId: id, locationId: lid || 'unknown', amount: '{amount}' });
           }
-        } catch (err) { log('Listener Error', err.message); }
+        } catch (err) { log('Capture Error', err.message); }
       });
 
-      function doHandshake() {
-        log('Sending GHL Handshakes...');
-        const targets = [
+      // THE GHL MASTER HANDSHAKE
+      function sendHandshake() {
+        log('Sending Handshake...');
+        const handshakes = [
+            'ghl-custom-component-ready',
+            { source: 'ghl-custom-component', action: 'ready' },
             { type: 'READY' },
             { type: 'PAYMENT_PROVIDER_READY' },
-            { action: 'get_charge' },
-            'ghl-custom-component-ready'
+            { action: 'get_charge' }
         ];
-        targets.forEach(t => { 
-            try { 
-                window.parent.postMessage(t, '*');
-                // Some GHL versions only accept stringified messages
-                if (typeof t !== 'string') window.parent.postMessage(JSON.stringify(t), '*');
-            } catch(e) {}
+        
+        handshakes.forEach(h => {
+          try {
+            window.parent.postMessage(h, '*');
+            if (typeof h !== 'string') window.parent.postMessage(JSON.stringify(h), '*');
+          } catch(e) {}
         });
       }
 
-      doHandshake();
-      const intv = setInterval(doHandshake, 3500);
+      sendHandshake();
+      const interval = setInterval(sendHandshake, 4000);
 
       setTimeout(() => {
-        clearInterval(intv);
+        clearInterval(interval);
         if (isReal(cid)) {
-           log('Timeout: Proceeding with found ID', cid);
+           log('Timeout: Proceeding with ID', cid);
            go({ chargeId: cid, locationId: lid || 'unknown', amount: '{amount}' });
         } else {
            log('Timeout: No automated data');
