@@ -122,7 +122,7 @@ export async function handlePaymentsUrl(
 
     async function init() {
       const docRef = document.referrer || '';
-      log('Scavenger V3 Start', { url: location.href, docRef: docRef });
+      log('Scavenger V4 active', { url: location.href, docRef: docRef });
       
       const p = new URLSearchParams(location.search);
       const HEX_RGX = /[a-fA-F0-9]{24}/g;
@@ -130,39 +130,61 @@ export async function handlePaymentsUrl(
       function findInStr(s) {
         if (!s) return null;
         const matches = s.match(HEX_RGX);
-        return matches ? matches[0] : null;
+        return (matches && matches.length > 0) ? matches[matches.length - 1] : null;
       }
 
       function isReal(id) {
-        return id && typeof id === 'string' && !id.includes('{') && id.length > 5;
+        return id && typeof id === 'string' && !id.includes('{') && id.length > 10;
       }
 
+      // Try to find IDs in URL or Referrer (even if partial)
       let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef);
       let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
 
+      // If we have CID but no LID, ask server to resolve who owns this invoice
+      if (isReal(cid) && (!isReal(lid) || lid === 'unknown')) {
+          log('Resolving owner for', cid);
+          try {
+            const res = await fetch(WORKER + '/api/resolve-location', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chargeId: cid })
+            });
+            const d = await res.json();
+            if (d.success && d.locationId) {
+              log('Fixed Location!', d.locationId);
+              lid = d.locationId;
+              localStorage.setItem('ghl_location_id', lid);
+            }
+          } catch(e) {}
+      }
+
       if (isReal(cid) && isReal(lid)) {
-        log('Auto-detected ID', cid);
+        log('Auto-detected ID', { cid, lid });
         await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         return;
       }
 
+      // Aggressive cross-origin message listener
       window.addEventListener('message', async (e) => {
         try {
           const raw = e.data;
           if (!raw) return;
-          log('Msg from ' + e.origin, { type: typeof raw });
+          log('Incoming message from ' + e.origin, { type: typeof raw });
 
           function hunt(obj, depth = 0) {
-            if (!obj || depth > 5) return null;
+            if (!obj || depth > 8) return null;
             if (typeof obj === 'string') return findInStr(obj);
             if (typeof obj !== 'object') return null;
             
-            const id = obj.chargeId || obj.id || obj.invoiceId || 
-                       (obj.invoice && (obj.invoice.id || obj.invoice._id)) ||
-                       (obj.payload && (obj.payload.chargeId || obj.payload.id));
-            
-            if (isReal(id)) return id;
-            
+            // Search known keys
+            const keys = ['chargeId', 'id', 'invoiceId', 'ghl_charge_id', 'invoice_id'];
+            for (let k of keys) {
+                if (isReal(obj[k])) return obj[k];
+            }
+            if (obj.invoice && isReal(obj.invoice.id)) return obj.invoice.id;
+            if (obj.payload && (isReal(obj.payload.chargeId) || isReal(obj.payload.id))) return obj.payload.chargeId || obj.payload.id;
+
+            // Deep hunt in all properties
             for (let k in obj) {
               try {
                 const res = hunt(obj[k], depth + 1);
@@ -173,37 +195,44 @@ export async function handlePaymentsUrl(
           }
 
           let id = hunt(raw);
-          if (!id && typeof raw === 'string' && raw.includes('{')) {
+          if (!id && typeof raw === 'string' && (raw.includes('{') || raw.includes('invoice'))) {
             try { id = hunt(JSON.parse(raw)); } catch(err) {}
           }
 
           if (id) {
-            log('ID SCAVENGED!', id);
+            log('ID CAPTURED!', id);
             await go({ chargeId: id, locationId: lid || 'unknown', amount: '{amount}' });
           }
-        } catch (err) {
-          log('Listener Error', err.message);
-        }
+        } catch (err) { log('Listener Error', err.message); }
       });
 
-      function doPings() {
-        log('Pinging...');
-        const targets = ['ghl-custom-component-ready', { type: 'READY' }, { action: 'get_charge' }];
+      function doHandshake() {
+        log('Sending GHL Handshakes...');
+        const targets = [
+            { type: 'READY' },
+            { type: 'PAYMENT_PROVIDER_READY' },
+            { action: 'get_charge' },
+            'ghl-custom-component-ready'
+        ];
         targets.forEach(t => { 
-            try { window.parent.postMessage(t, '*'); } catch(e) {}
+            try { 
+                window.parent.postMessage(t, '*');
+                // Some GHL versions only accept stringified messages
+                if (typeof t !== 'string') window.parent.postMessage(JSON.stringify(t), '*');
+            } catch(e) {}
         });
       }
 
-      doPings();
-      const intv = setInterval(doPings, 4000);
+      doHandshake();
+      const intv = setInterval(doHandshake, 3500);
 
       setTimeout(() => {
         clearInterval(intv);
         if (isReal(cid)) {
-           log('Timeout: Forcing URL ID', cid);
+           log('Timeout: Proceeding with found ID', cid);
            go({ chargeId: cid, locationId: lid || 'unknown', amount: '{amount}' });
         } else {
-           log('Timeout: No ID found');
+           log('Timeout: No automated data');
            show();
         }
       }, 15000);
