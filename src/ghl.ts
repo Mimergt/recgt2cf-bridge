@@ -159,7 +159,53 @@ export async function handlePaymentsUrl(
       }
 
       log('Waiting for msg...');
-      // ... rest of pings and messages ...
+      if (lid && lid !== 'null') localStorage.setItem('ghl_location_id', lid);
+
+      // Listen for data from parent
+      window.addEventListener('message', async (e) => {
+        const raw = e.data;
+        if (!raw) return;
+        
+        function extract(o) {
+          if (!o || typeof o !== 'object') return null;
+          const id = o.chargeId || o.id || o.invoiceId || (o.invoice && (o.invoice.id || o.invoice._id)) || (o.payload && o.payload.id);
+          const loc = o.locationId || o.locId || lid;
+          return id && !String(id).includes('{') ? { id, loc, amt: o.amount || o.total } : null;
+        }
+
+        let found = extract(raw) || extract(raw.payload) || extract(raw.data);
+        if (!found && typeof raw === 'string' && raw.includes('{')) {
+          try { 
+            const parsed = JSON.parse(raw);
+            found = extract(parsed) || extract(parsed.payload) || extract(parsed.data);
+          } catch(err) {}
+        }
+
+        if (found && found.id) {
+          log('ID caught via MSG!', found.id);
+          await go({ chargeId: found.id, locationId: found.loc || lid, amount: found.amt || '{amount}' });
+        }
+      });
+
+      // Send multiple ping formats to trigger GHL data
+      const pings = [{ type: 'REQUEST_PAYMENT_DATA' }, { action: 'get_charge' }, { type: 'PAYMENT_PROVIDER_READY' }, { event: 'ready' }];
+      pings.forEach(msg => {
+        window.parent.postMessage(msg, '*');
+        window.parent.postMessage(JSON.stringify(msg), '*');
+      });
+      
+      log('Pings sent');
+
+      setTimeout(() => {
+        if (cid && !cid.includes('{')) {
+           log('Timeout: Proceeding with found ID', cid);
+           go({ chargeId: cid, locationId: lid || 'unknown', amount: p.get('amount') || '{amount}' });
+        } else {
+           log('Timeout: No ID found, showing form');
+           show();
+        }
+      }, 10000);
+    }
 
     async function go(pay) {
       try {
