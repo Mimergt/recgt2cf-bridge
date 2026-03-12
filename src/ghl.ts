@@ -40,6 +40,8 @@ export async function handlePaymentsUrl(
 ): Promise<Response> {
     // Return the HTML page that GHL will load in the iframe
     const workerUrl = new URL(request.url).origin;
+    const refererHeader = request.headers.get('Referer') || '';
+    const userAgent = request.headers.get('User-Agent') || '';
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -164,6 +166,7 @@ export async function handlePaymentsUrl(
 
   <script>
     const WORKER_URL = '${workerUrl}';
+    const HTTP_REFERER = '${refererHeader}';
     let messageLog = [];
 
     function showDebug(label, data) {
@@ -248,6 +251,12 @@ export async function handlePaymentsUrl(
           href: window.location.href, 
           search: window.location.search, 
           hash: window.location.hash,
+          self: window.self === window.top ? 'TOP' : 'IN iframe'
+        });
+        showDebug('🌐 HTTP Headers (Server-side)', { 
+          referer: HTTP_REFERER,
+          userAgent: '${userAgent}'
+        });
           origin: window.location.origin,
           pathname: window.location.pathname
         });
