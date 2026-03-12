@@ -263,7 +263,6 @@ export async function handlePaymentsUrl(
           userAgent: '${userAgent}'
         });
         showDebug('📍 Domain Info', {
-        showDebug('📍 Domain Info', {
           origin: window.location.origin,
           pathname: window.location.pathname
         });
