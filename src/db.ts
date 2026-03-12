@@ -131,3 +131,87 @@ export async function getTransactionByCheckoutId(
         .bind(checkoutId)
         .first<Transaction>();
 }
+
+// ─── GHL Token Persistence ─────────────────────────────────
+
+/** Ensure token table exists and upsert token for a location */
+export async function upsertGhlToken(
+    db: D1Database,
+    locationId: string,
+    accessToken: string,
+    refreshToken?: string | null,
+    scopes?: string | null,
+    expiresAt?: string | null
+): Promise<void> {
+    // Create table if missing (safe to run on each call)
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS ghl_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id TEXT NOT NULL UNIQUE,
+            access_token TEXT NOT NULL,
+            refresh_token TEXT,
+            scopes TEXT,
+            expires_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`
+    ).run();
+
+    await db
+        .prepare(
+            `INSERT INTO ghl_tokens (location_id, access_token, refresh_token, scopes, expires_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(location_id) DO UPDATE SET
+           access_token = excluded.access_token,
+           refresh_token = excluded.refresh_token,
+           scopes = excluded.scopes,
+           expires_at = excluded.expires_at,
+           updated_at = datetime('now')`
+        )
+        .bind(locationId, accessToken, refreshToken || null, scopes || null, expiresAt || null)
+        .run();
+}
+
+/** Retrieve GHL token row by location */
+export async function getGhlToken(db: D1Database, locationId: string) {
+    return db
+        .prepare('SELECT * FROM ghl_tokens WHERE location_id = ?')
+        .bind(locationId)
+        .first();
+}
+
+// ─── Simple Key/Value Settings ──────────────────────────────
+export async function setSetting(db: D1Database, key: string, value: string): Promise<void> {
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS bridge_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`
+    ).run();
+
+    await db
+        .prepare(
+            `INSERT INTO bridge_settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+        )
+        .bind(key, value)
+        .run();
+}
+
+export async function getSetting(db: D1Database, key: string): Promise<string | null> {
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS bridge_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`
+    ).run();
+
+    const row = await db.prepare('SELECT value FROM bridge_settings WHERE key = ?').bind(key).first<{ value: string }>();
+    return row ? row.value : null;
+}

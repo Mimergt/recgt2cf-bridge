@@ -14,6 +14,7 @@
 
 import type { Env, GHLQueryAction } from './types';
 import { getTenant } from './db';
+import { getGhlToken } from './db';
 import { createCheckout, getCheckoutStatus, toCents } from './recurrente';
 import { createTransaction, getTransactionByChargeId, updateTransactionByChargeId } from './db';
 import { jsonResponse, htmlResponse } from './router';
@@ -76,6 +77,61 @@ export async function handlePaymentsUrl(
     h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
     p { color: #6c757d; font-size: 0.9rem; }
     .error { color: #e03131; display: none; }
+    #debug-box {
+      display: none !important;
+      max-height: 400px;
+      overflow-y: auto;
+      border: 2px solid #4263eb;
+      background: #1a1a2e;
+      color: #00ff88;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 16px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #debug-box.active { display: block !important; }
+    #debug-box b { color: #00d4ff; }
+    #manual-form {
+      display: none;
+      margin-top: 2rem;
+      padding: 2rem;
+      background: #f8f9fa;
+      border-radius: 8px;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #manual-form.show { display: block; }
+    #manual-form input {
+      width: 100%;
+      padding: 0.75rem;
+      margin: 0.5rem 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 1rem;
+    }
+    #manual-form button {
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 1rem;
+      background: #4263eb;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    #manual-form button:hover { background: #364dd9; }
+    #manual-form label {
+      display: block;
+      margin-top: 1rem;
+      font-weight: 600;
+      color: #333;
+    }
   </style>
 </head>
 <body>
@@ -84,67 +140,559 @@ export async function handlePaymentsUrl(
     <h2 id="status-text">Preparando checkout...</h2>
     <p id="status-sub">Serás redirigido a la página de pago</p>
     <p class="error" id="error-msg"></p>
+    
+    <!-- Manual form fallback -->
+    <form id="manual-form" onsubmit="return false;">
+      <h3 style="text-align: center; margin-bottom: 1.5rem;">Completa los datos de pago</h3>
+      <label>Número de Factura / Charge ID:</label>
+      <input type="text" id="chargeId-input" placeholder="Ej: 123456" required>
+      
+      <label>Monto (GTQ):</label>
+      <input type="number" id="amount-input" placeholder="Ej: 100.50" step="0.01" required>
+      
+      <label>Email:</label>
+      <input type="email" id="email-input" placeholder="tu@email.com" required>
+      
+      <label>Nombre:</label>
+      <input type="text" id="name-input" placeholder="Tu nombre" required>
+      
+      <button type="submit" id="submit-btn">Procesar Pago</button>
+    </form>
+    
+    <pre id="debug-box"></pre>
   </div>
 
   <script>
     const WORKER_URL = '${workerUrl}';
+    let messageLog = [];
 
-    // Listen for payment data from GHL parent window
-    window.addEventListener('message', async function(event) {
-      console.log('[GHL Bridge] Received message:', event.data);
-
-      // GHL sends event with type and payment data
-      const data = event.data;
-      if (!data || !data.chargeId) {
-        console.log('[GHL Bridge] Ignoring non-payment message');
-        return;
+    function showDebug(label, data) {
+      const timestamp = new Date().toLocaleTimeString('es-ES');
+      const box = document.getElementById('debug-box');
+      if (box) {
+        // Make sure debug box is visible
+        box.classList.add('active');
+        const entry = '[' + timestamp + '] <b>' + label + ':</b><br>' + JSON.stringify(data, null, 2) + '<br>';
+        box.innerHTML += entry;
+        messageLog.push({ timestamp, label, data });
+        // Auto scroll to bottom
+        box.scrollTop = box.scrollHeight;
       }
+    }
 
+    async function processPayment(data) {
       try {
+        showDebug('🚀 processPayment called with', data);
         document.getElementById('status-text').textContent = 'Creando sesión de pago...';
 
-        // Call our Worker to create a Recurrente checkout
+        const chargeId = data.chargeId || data.charge_id || data.id;
+        const amount = data.amount || data.total || data.balance;
+
+        if (!chargeId) throw new Error('No chargeId found in data');
+        if (!amount) throw new Error('No amount found in data');
+
+        // Try to get locationId from multiple sources
+        const locationId = data.locationId || data.location_id || data.locationID || 
+                          localStorage.getItem('ghl_location_id') || 
+                          sessionStorage.getItem('ghl_location_id') ||
+                          null; // Removed default test location to prevent incorrect amounts
+
+        const payload = {
+          locationId: locationId,
+          chargeId: chargeId,
+          amount: amount,
+          currency: data.currency || 'GTQ',
+          contactName: data.contactName || data.name || data.contact_name || '',
+          contactEmail: data.contactEmail || data.email || '',
+          description: data.description || data.title || 'Pago GHL',
+        };
+
+        showDebug('📝 Prepared checkout payload', payload);
+
         const response = await fetch(WORKER_URL + '/api/create-checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            locationId: data.locationId,
-            chargeId: data.chargeId,
-            amount: data.amount,
-            currency: data.currency || 'GTQ',
-            contactName: data.contactName || '',
-            contactEmail: data.contactEmail || '',
-            description: data.description || 'Pago GHL',
-          }),
+          body: JSON.stringify(payload),
         });
 
         const result = await response.json();
+        showDebug('✅ API Response', result);
 
         if (result.success && result.checkout_url) {
+          showDebug('🎉 Checkout created, redirecting to Recurrente', { url: result.checkout_url });
           document.getElementById('status-text').textContent = 'Redirigiendo a pago...';
-          // Redirect the iframe to the Recurrente checkout page
-          window.location.href = result.checkout_url;
+          setTimeout(() => {
+            window.top.location.href = result.checkout_url;
+          }, 500);
         } else {
           throw new Error(result.error || 'Error al crear sesión de pago');
         }
       } catch (err) {
-        console.error('[GHL Bridge] Error:', err);
+        showDebug('❌ Error in processPayment', { message: err.message, stack: err.stack });
         document.getElementById('spinner').style.display = 'none';
         document.getElementById('status-text').textContent = 'Error al procesar';
         document.getElementById('error-msg').style.display = 'block';
         document.getElementById('error-msg').textContent = err.message;
-
-        // Notify GHL of failure
-        window.parent.postMessage({
-          chargeId: data.chargeId,
-          status: 'failed',
-          error: err.message,
-        }, '*');
+        const chargeId = data?.chargeId || data?.charge_id || data?.id;
+        if (chargeId) {
+          window.parent.postMessage({ chargeId: chargeId, status: 'failed', error: err.message }, '*');
+        }
       }
+    }
+
+    // Initialize - wrap everything in async IIFE
+    (async function init() {
+      try {
+        // Initial diagnostics
+        showDebug('📍 Full URL', { 
+          href: window.location.href, 
+          search: window.location.search, 
+          hash: window.location.hash,
+          origin: window.location.origin,
+          pathname: window.location.pathname
+        });
+        showDebug('📋 Referrer', { referrer: document.referrer, parent: window.parent ? 'has parent' : 'no parent' });
+        showDebug('🔧 Window Info', { 
+          timezoneOffset: new Date().getTimezoneOffset(),
+          userAgent: navigator.userAgent,
+          self: window.self === window.parent ? 'NOT in iframe' : 'IN iframe'
+        });
+
+        // 1. Check query params
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlData = Object.fromEntries(urlParams.entries());
+        showDebug('📌 URL Query Params', urlData);
+
+        // 2. Check hash params (GHL may pass data as #chargeId=xxx)
+        const hashParams = new URLSearchParams(window.location.hash.replace('#', ''));
+        const hashData = Object.fromEntries(hashParams.entries());
+        showDebug('🏷️ Hash Params', hashData);
+
+        const merged = { ...urlData, ...hashData };
+
+        if (merged.chargeId || merged.charge_id) {
+          showDebug('✨ Found chargeId in URL/hash params', { chargeId: merged.chargeId || merged.charge_id });
+
+          // If placeholders are present (GHL didn't substitute), avoid sending them to Recurrente
+          const rawCharge = merged.chargeId || merged.charge_id || '';
+          const rawAmount = merged.amount || '';
+          const looksLikePlaceholder = (s) => typeof s === 'string' && s.includes('{');
+
+          if (looksLikePlaceholder(rawCharge) || looksLikePlaceholder(rawAmount)) {
+            showDebug('⚠️ Detected placeholder values in URL — will NOT call create-checkout with placeholders', { charge: rawCharge, amount: rawAmount });
+
+            // First, try to detect invoice data embedded in global objects (some GHL setups expose data synchronously)
+            try {
+              const tryGlobalInvoice = (() => {
+                try {
+                  const candidates = [window.__GHL__, window.parent && window.parent.__GHL__, window.ghl, window.parent && window.parent.ghl];
+                  for (const c of candidates) {
+                    if (!c) continue;
+                    if (c.invoice) return c.invoice;
+                    if (c.payload && c.payload.invoice) return c.payload.invoice;
+                    if (c.data && c.data.invoice) return c.data.invoice;
+                  }
+                } catch (e) { /* ignore cross-origin */ }
+                return null;
+              })();
+
+              if (tryGlobalInvoice) {
+                showDebug('📥 Found invoice in global object, will map and create checkout', tryGlobalInvoice);
+                const inv = tryGlobalInvoice;
+                const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
+                const mapped = {
+                  chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
+                  amount: inv.total || inv.invoiceTotal || inv.amountDue || (item ? item.amount : null),
+                  currency: inv.currency || (item ? item.currency : null) || 'GTQ',
+                  contactName: inv.contactDetails?.name || inv.contactDetails?.companyName || '',
+                  contactEmail: inv.contactDetails?.email || '',
+                  description: item ? item.name || item.description || inv.name || 'Pago GHL' : inv.name || 'Pago GHL',
+                  locationId: inv.altId || (inv.layout && inv.layout.altId) || null
+                };
+                if (mapped.amount && Number(mapped.amount) > 0) {
+                  processPayment(mapped);
+                  return;
+                }
+              }
+            } catch (e) {
+              showDebug('⚠️ Error while checking global invoice object', { error: e.message });
+            }
+
+            // Wait briefly for a postMessage or global invoice to arrive so we don't
+            // prematurely redirect to a stale global pending checkout.
+            const waitForLocalData = new Promise(async (resolve) => {
+              let resolved = false;
+              function onMsgOnce(event) {
+                try {
+                  let rawEvent = event.data;
+                  if (typeof rawEvent === 'string') {
+                    try { rawEvent = JSON.parse(rawEvent); } catch(e){}
+                  }
+                  const p = cloneData(rawEvent?.data || rawEvent?.payload || rawEvent);
+                  // if invoice object present, map and create checkout
+                  if (p && p.invoice) {
+                    const inv = p.invoice;
+                    const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
+                    const mapped = {
+                      chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
+                      amount: inv.total || inv.invoiceTotal || inv.amountDue || (item ? item.amount : null),
+                      currency: inv.currency || (item ? item.currency : null) || 'GTQ',
+                      contactName: inv.contactDetails?.name || inv.contactDetails?.companyName || '',
+                      contactEmail: inv.contactDetails?.email || '',
+                      description: item ? item.name || item.description || inv.name || 'Pago GHL' : inv.name || 'Pago GHL',
+                      locationId: inv.altId || (inv.layout && inv.layout.altId) || null
+                    };
+                    if (mapped.amount && Number(mapped.amount) > 0) {
+                      resolved = true;
+                      window.removeEventListener('message', onMsgOnce);
+                      processPayment(mapped);
+                      resolve(true);
+                      return;
+                    }
+                  }
+
+                  // top-level chargeId present
+                  const chargeIdTop = p?.chargeId || p?.charge_id || p?.id || p?._id;
+                  if (chargeIdTop) {
+                    resolved = true;
+                    window.removeEventListener('message', onMsgOnce);
+                    processPayment({ ...p, chargeId: chargeIdTop });
+                    resolve(true);
+                    return;
+                  }
+                } catch (e) {
+                  // ignore
+                }
+              }
+              window.addEventListener('message', onMsgOnce);
+              // also short-circuit if parent/window has invoice immediately
+              try {
+                const tryGlobalInvoice2 = (() => {
+                  try {
+                    const cands = [window.__GHL__, window.parent && window.parent.__GHL__, window.ghl, window.parent && window.parent.ghl];
+                    for (const c of cands) {
+                      if (!c) continue;
+                      if (c.invoice) return c.invoice;
+                      if (c.payload && c.payload.invoice) return c.payload.invoice;
+                      if (c.data && c.data.invoice) return c.data.invoice;
+                    }
+                  } catch(e) {}
+                  return null;
+                })();
+                if (tryGlobalInvoice2) {
+                  const inv = tryGlobalInvoice2;
+                  const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
+                  const mapped2 = {
+                    chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
+                    amount: inv.total || inv.invoiceTotal || inv.amountDue || (item ? item.amount : null),
+                    currency: inv.currency || (item ? item.currency : null) || 'GTQ',
+                    contactName: inv.contactDetails?.name || inv.contactDetails?.companyName || '',
+                    contactEmail: inv.contactDetails?.email || '',
+                    description: item ? item.name || item.description || inv.name || 'Pago GHL' : inv.name || 'Pago GHL',
+                    locationId: inv.altId || (inv.layout && inv.layout.altId) || null
+                  };
+                  if (mapped2.amount && Number(mapped2.amount) > 0) {
+                    resolved = true;
+                    processPayment(mapped2);
+                    resolve(true);
+                    return;
+                  }
+                }
+              } catch (e) {}
+
+              // timeout: proceed to server discovery if nothing arrives
+              setTimeout(() => {
+                if (!resolved) {
+                  try { window.removeEventListener('message', onMsgOnce); } catch(e){}
+                  resolve(false);
+                }
+              }, 1200);
+            });
+
+            const possibleLocationId = 
+              new URL(window.location.href).searchParams.get('locationId') ||
+              sessionStorage.getItem('ghl_location_id') ||
+              localStorage.getItem('ghl_location_id');
+
+            if (possibleLocationId) {
+              showDebug('📡 Found locationId via storage or params', { locationId: possibleLocationId });
+              try {
+                const qres = await fetch(WORKER_URL + '/api/query', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ type: 'get_pending_charge', locationId: possibleLocationId })
+                });
+                const jq = await qres.json();
+                showDebug('🔎 Query result for location', jq);
+                if (jq && jq.success && jq.checkout_url) {
+                  showDebug('🎯 Redirecting to pre-created checkout', { url: jq.checkout_url });
+                  window.top.location.href = jq.checkout_url;
+                  return;
+                }
+                // If not found, try to force creation via ensure_checkout
+                const ensureRes = await fetch(WORKER_URL + '/api/query', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ type: 'ensure_checkout', locationId: possibleLocationId })
+                });
+                const ensureJson = await ensureRes.json();
+                showDebug('🔧 ensure_checkout result', ensureJson);
+                if (ensureJson && ensureJson.success && ensureJson.checkout_url) {
+                  window.top.location.href = ensureJson.checkout_url;
+                  return;
+                }
+              } catch (e) {
+                showDebug('❌ Error querying pending charge by location', { error: e.message });
+              }
+            }
+
+/* 
+            // Fallback: ask worker for any pending charge globally (debug / single-tenant friendly)
+            // DISABLED: This causes cross-location data leakage in multi-tenant environments
+            try {
+              // First try global pre-created
+              const globalRes = await fetch(WORKER_URL + '/api/query', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'get_pending_charge_global' })
+              });
+              const gq = await globalRes.json();
+              showDebug('🌐 Global pending query result', gq);
+              if (gq && gq.success && gq.checkout_url) {
+                showDebug('➡️ Redirecting to global pre-created checkout', { url: gq.checkout_url });
+                window.top.location.href = gq.checkout_url;
+                return;
+              }
+
+              // If none found, attempt to force creation across all stored GHL tokens
+              const ensureGlobal = await fetch(WORKER_URL + '/api/query', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'ensure_checkout_global' })
+              });
+              const eg = await ensureGlobal.json();
+              showDebug('🔧 ensure_checkout_global result', eg);
+              if (eg && eg.success && eg.checkout_url) {
+                window.top.location.href = eg.checkout_url;
+                return;
+              }
+            } catch (e) {
+              showDebug('❌ Error querying global pending charge', { error: e.message });
+            }
+*/
+
+            // If nothing found, show manual form fallback
+            showDebug('⚠️ No pre-created checkout found — showing manual form', {});
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('status-text').textContent = 'Formulario de Pago Manual';
+            document.getElementById('status-sub').textContent = 'GHL no está enviando los datos automáticamente. Por favor completa los datos de pago:';
+            document.getElementById('manual-form').classList.add('show');
+            return;
+          }
+
+          // Otherwise proceed with normal processing
+          processPayment(merged);
+        } else {
+          showDebug('⏳ No chargeId in URL - waiting for postMessage...', {});
+          document.getElementById('status-sub').textContent = 'Esperando datos de pago desde GHL...';
+
+          let messageCount = 0;
+          
+          // Try to extract locationId from various sources
+          const possibleLocationId = 
+            new URL(window.location.href).searchParams.get('locationId') ||
+            new URL(window.location.href).searchParams.get('location_id') ||
+            sessionStorage.getItem('ghl_location_id') ||
+            localStorage.getItem('ghl_location_id') ||
+            window.__GHL__?.locationId ||
+            window.ghl?.locationId;
+          
+          showDebug('🔍 Attempting to find locationId', { 
+            found: !!possibleLocationId, 
+            value: possibleLocationId,
+            sessionStorage: sessionStorage.getItem('ghl_location_id'),
+            localStorage: localStorage.getItem('ghl_location_id')
+          });
+
+          // Add message listener FIRST
+          window.addEventListener('message', function(event) {
+            messageCount++;
+            showDebug('📬 postMessage event #' + messageCount, {
+              origin: event.origin,
+              type: typeof event.data,
+              dataKeys: event.data ? (typeof event.data === 'object' ? Object.keys(event.data) : 'N/A') : 'null',
+            });
+
+            let raw = event.data;
+            showDebug('🔍 Raw event.data (type: ' + (typeof raw) + ')', raw);
+
+            // Try to parse if it's a string
+            if (typeof raw === 'string') {
+              try { 
+                raw = JSON.parse(raw);
+                showDebug('✅ Successfully parsed JSON string', raw);
+              } catch(e) { 
+                showDebug('⚠️ Could not parse as JSON', { error: e.message, original: raw });
+              }
+            }
+
+            // Defensive clone/helper to convert Proxy-like objects into plain POJOs
+            function cloneData(obj) {
+              try {
+                // Prefer structuredClone if available
+                if (typeof structuredClone === 'function') return structuredClone(obj);
+              } catch (e) {
+                // ignore
+              }
+              try {
+                return JSON.parse(JSON.stringify(obj));
+              } catch (e) {
+                // Try manual shallow copy
+                try {
+                  const out = {};
+                  for (const k of Object.keys(obj || {})) {
+                    out[k] = obj[k];
+                  }
+                  // include symbol/hidden keys if possible
+                  try { for (const k of Reflect.ownKeys(obj || {})) { if (!(k in out)) out[k] = obj[k]; } } catch(e){}
+                  return out;
+                } catch (err) {
+                  return obj;
+                }
+              }
+            }
+
+            const payload = cloneData(raw?.data || raw?.payload || raw);
+            showDebug('📦 Final payload extracted', { 
+              keys: payload ? Object.keys(payload) : 'null',
+              payload: payload 
+            });
+
+            // Attempt to find chargeId in several places, including nested 'invoice' objects
+            let chargeId = payload?.chargeId || payload?.charge_id || payload?.id || payload?.chargeID;
+            if (!chargeId && payload && payload.invoice) {
+              chargeId = payload.invoice._id || payload.invoice.id || payload.invoice.invoiceNumber || null;
+            }
+            showDebug('🔑 Looking for chargeId', { found: !!chargeId, value: chargeId });
+
+            // If chargeId not found at top-level, but payload looks like an invoice object, map fields
+            if (!chargeId && payload && payload.invoice) {
+              const inv = payload.invoice;
+              const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
+              const mapped = {
+                chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
+                amount: inv.total || inv.invoiceTotal || inv.amountDue || (item ? item.amount : null),
+                currency: inv.currency || (item ? item.currency : null) || 'GTQ',
+                contactName: inv.contactDetails?.name || inv.contactDetails?.companyName || '',
+                contactEmail: inv.contactDetails?.email || '',
+                description: item ? item.name || item.description || inv.name || 'Pago GHL' : inv.name || 'Pago GHL',
+                locationId: inv.altId || payload.layout?.altId || null
+              };
+              showDebug('🧭 Detected nested invoice object - mapped payload', mapped);
+              // Validate amount
+              if (mapped.amount && Number(mapped.amount) > 0) {
+                processPayment(mapped);
+                return;
+              } else {
+                showDebug('⚠️ Invoice found but amount invalid', { amount: mapped.amount });
+                // continue to other checks / waiting
+                return;
+              }
+            }
+
+            if (!chargeId) {
+              showDebug('❌ No chargeId found in this message - continuing to listen...', { payload_type: typeof payload });
+              return;
+            }
+
+            showDebug('✅ Found chargeId! Processing payment...', { chargeId });
+            processPayment({ ...payload, chargeId });
+          });
+
+            // If we have locationId, try to fetch pending charge from server
+          if (possibleLocationId) {
+            showDebug('📡 Attempting to fetch pending charge from server...', { locationId: possibleLocationId });
+            
+            try {
+              const queryResponse = await fetch(WORKER_URL + '/api/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'get_pending_charge',
+                  locationId: possibleLocationId,
+                  action: 'get_pending_charge'
+                })
+              });
+
+              const queryResult = await queryResponse.json();
+              showDebug('✅ Query response received', queryResult);
+
+                if (queryResult.success && queryResult.chargeId) {
+                showDebug('🎯 Got pending charge from server', queryResult);
+                processPayment({
+                  chargeId: queryResult.chargeId,
+                  amount: queryResult.amount,
+                  currency: queryResult.currency || 'GTQ',
+                  locationId: possibleLocationId
+                });
+              } else {
+                showDebug('⚠️ Query returned but no charge found', queryResult);
+              }
+            } catch (err) {
+              showDebug('❌ Error fetching from query endpoint', { error: err.message });
+            }
+          }
+
+          // Request charge data from GHL parent as backup
+          showDebug('📤 Requesting charge data from GHL parent...', {});
+          window.parent.postMessage({ type: 'REQUEST_PAYMENT_DATA', action: 'get_charge' }, '*');
+          showDebug('Sent: REQUEST_PAYMENT_DATA', {});
+          window.parent.postMessage({ action: 'get_charge', data: {} }, '*');
+          showDebug('Sent: get_charge request', {});
+
+          // Also announce readiness to GHL
+          showDebug('📢 Sending PAYMENT_PROVIDER_READY signals...', {});
+          window.parent.postMessage(JSON.stringify({ type: 'PAYMENT_PROVIDER_READY' }), '*');
+          showDebug('📤 Sent format #1', { type: 'PAYMENT_PROVIDER_READY' });
+          window.parent.postMessage(JSON.stringify({ eventType: 'PAYMENT_PROVIDER_READY' }), '*');
+          showDebug('📤 Sent format #2', { eventType: 'PAYMENT_PROVIDER_READY' });
+          window.parent.postMessage({ type: 'PAYMENT_PROVIDER_READY' }, '*');
+          showDebug('📤 Sent format #3 (object)', { type: 'PAYMENT_PROVIDER_READY' });
+
+          // Timeout warning
+          setTimeout(() => {
+            if (messageCount === 0) {
+              showDebug('⚠️ TIMEOUT: No messages received after 10 seconds', { 
+                check: 'GHL Custom Providers may not support postMessage data passing',
+                suggestion: 'Showing manual payment form as fallback'
+              });
+              
+              // Hide spinner and show manual form
+              document.getElementById('spinner').style.display = 'none';
+              document.getElementById('status-text').textContent = 'Formulario de Pago Manual';
+              document.getElementById('status-sub').textContent = 'GHL no está enviando los datos automáticamente. Por favor completa los datos de pago:';
+              document.getElementById('manual-form').classList.add('show');
+            }
+          }, 10000);
+        }
+      } catch (initErr) {
+        showDebug('❌ Error during initialization', { error: initErr.message, stack: initErr.stack });
+      }
+    })();
+
+    // Handle manual form submission
+    document.getElementById('submit-btn').addEventListener('click', function(e) {
+      e.preventDefault();
+      const formData = {
+        chargeId: document.getElementById('chargeId-input').value,
+        amount: parseFloat(document.getElementById('amount-input').value),
+        contactEmail: document.getElementById('email-input').value,
+        contactName: document.getElementById('name-input').value,
+        currency: 'GTQ'
+      };
+      
+      document.getElementById('manual-form').classList.remove('show');
+      processPayment(formData);
     });
   </script>
 </body>
-</html>`;
+</html`;
 
     return htmlResponse(html);
 }
@@ -378,117 +926,260 @@ export async function handleQueryUrl(
     env: Env,
     params: URLSearchParams
 ): Promise<Response> {
-    const body = await request.json<GHLQueryAction>();
+    try {
+        const body = await request.json<GHLQueryAction>();
 
-    console.log('[queryUrl] Received action:', JSON.stringify(body));
+        console.log('[queryUrl] Received action:', JSON.stringify(body, null, 2));
 
-    const { type, locationId } = body;
+        const { type, locationId } = body;
 
-    if (!type || !locationId) {
-        return jsonResponse({ success: false, error: 'Missing type or locationId' }, 400);
-    }
+        if (!type) {
+          return jsonResponse({ success: false, error: 'Missing type' }, 400);
+        }
 
-    // Look up tenant
-    const tenant = await getTenant(env.DB, locationId);
-    if (!tenant) {
-        return jsonResponse({ success: false, error: 'Tenant not found' }, 404);
-    }
+        // Custom helper: get pending charge created by webhook
+        if (type === 'get_pending_charge') {
+          const chargeId = (body as any).chargeId || (body as any).id || null;
+          // If chargeId provided, try to return the matching transaction
+          if (chargeId) {
+            const tx = await getTransactionByChargeId(env.DB, chargeId);
+            if (!tx) return jsonResponse({ success: false, message: 'No transaction found', chargeId }, 404);
+            const meta = typeof tx.meta === 'string' ? JSON.parse(tx.meta || '{}') : tx.meta || {};
+/* 
+            return jsonResponse({ success: true, chargeId, amount: (tx.amount || 0) / 100, currency: tx.currency, checkout_url: meta.recurrente_checkout_url || null });
+*/
+            // Fixing the lint error by ensuring tx.amount is treated as a number
+            const txAmount = typeof tx.amount === 'number' ? tx.amount : 0;
+            return jsonResponse({ success: true, chargeId, amount: txAmount / 100, currency: tx.currency, checkout_url: meta.recurrente_checkout_url || null });
+          }
 
-    switch (type) {
-        case 'verify':
-            return handleVerify(env, tenant, body);
+          // Otherwise, require a locationId to lookup pending transaction
+          if (!locationId) {
+            return jsonResponse({ success: false, error: 'Missing locationId or chargeId' }, 400);
+          }
 
-        case 'refund':
-            // TODO: Implement refund via Recurrente API
+          // Return the latest pending transaction for this location
+          const { results } = await env.DB.prepare('SELECT * FROM transactions WHERE location_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1').bind(locationId, 'pending').all();
+          const row = results && results.length ? results[0] : null;
+          if (!row) return jsonResponse({ success: false, message: 'No pending charges' });
+          const meta = typeof row.meta === 'string' ? JSON.parse(row.meta || '{}') : row.meta || {};
+/* 
+          return jsonResponse({ success: true, chargeId: row.ghl_charge_id, amount: (row.amount || 0) / 100, currency: row.currency, checkout_url: meta.recurrente_checkout_url || null });
+*/
+          const rowAmount = typeof row.amount === 'number' ? row.amount : 0;
+          return jsonResponse({ success: true, chargeId: row.ghl_charge_id, amount: rowAmount / 100, currency: row.currency, checkout_url: meta.recurrente_checkout_url || null });
+        }
+
+/* 
+        // Global pending charge (no locationId) - useful when iframe cannot get locationId
+        // DISABLED: Security risk in multi-tenant environments
+        if (type === 'get_pending_charge_global') {
+          const { results } = await env.DB.prepare('SELECT * FROM transactions WHERE status = ? ORDER BY created_at DESC LIMIT 1').bind('pending').all();
+          const row = results && results.length ? results[0] : null;
+          if (!row) return jsonResponse({ success: false, message: 'No pending charges found globally' });
+          const meta = typeof row.meta === 'string' ? JSON.parse(row.meta || '{}') : row.meta || {};
+          return jsonResponse({ success: true, chargeId: row.ghl_charge_id, amount: (row.amount || 0) / 100, currency: row.currency, checkout_url: meta.recurrente_checkout_url || null, locationId: row.location_id });
+        }
+
+        if (type === 'ensure_checkout_global') {
+          // Try each stored GHL token and associated location to find pending charges and create checkout
+          const tokens = await env.DB.prepare('SELECT * FROM ghl_tokens').all();
+          const rows: any[] = tokens.results || [];
+          for (const t of rows) {
+            try {
+              const locationId = t.location_id;
+              const tenant = await getTenant(env.DB, locationId);
+              if (!tenant) continue;
+              // Reuse ensureCheckoutForLocation logic by calling it
+              const res = await ensureCheckoutForLocation(env, tenant, { locationId });
+              const text = await res.text();
+              try {
+                const parsed = JSON.parse(text);
+                if (parsed && parsed.success && parsed.checkout_url) return jsonResponse(parsed);
+              } catch (e) {
+                continue;
+              }
+            } catch (e) {
+              console.error('[ensure_checkout_global] error for token', t.location_id, e instanceof Error ? e.message : 'Unknown error');
+
+              continue;
+            }
+          }
+          return jsonResponse({ success: false, error: 'No pending charges found across all locations' }, 404);
+        }
+*/
+
+        // Health check / capability validation
+        if (type === 'health' || type === 'ping' || type === 'capabilities') {
             return jsonResponse({
-                success: false,
-                error: 'Refunds not yet implemented',
-            }, 501);
+                success: true,
+                capabilities: ['payments', 'verify'],
+                message: 'EPICPay1 provider is active and ready'
+            });
+        }
 
-        case 'subscription':
-            // TODO: Implement subscription management
-            return jsonResponse({
-                success: false,
-                error: 'Subscriptions not yet implemented',
-            }, 501);
+        // Look up tenant
+        const tenant = await getTenant(env.DB, locationId);
+        if (!tenant) {
+            return jsonResponse({ success: false, error: 'Tenant not found' }, 404);
+        }
 
-        default:
-            return jsonResponse({
-                success: false,
-                error: `Unknown action type: ${type}`,
-            }, 400);
+        switch (type) {
+          case 'ensure_checkout':
+            // Ensure there's a Recurrente checkout for the latest pending charge in GHL for this location
+            return ensureCheckoutForLocation(env, tenant, body);
+
+            case 'refund':
+                // TODO: Implement refund via Recurrente API
+                return jsonResponse({
+                    success: false,
+                    error: 'Refunds not yet implemented',
+                }, 501);
+
+            case 'subscription':
+                // TODO: Implement subscription management
+                return jsonResponse({
+                    success: false,
+                    error: 'Subscriptions not yet implemented',
+                }, 501);
+
+            default:
+                return jsonResponse({
+                    success: false,
+                    error: `Unknown action type: ${type}`,
+                }, 400);
+        }
+    } catch (error) {
+        console.error('[queryUrl] Error:', error);
+        return jsonResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        }, 500);
     }
 }
 
-// ─── Verify Action ──────────────────────────────────────────
+  async function ensureCheckoutForLocation(env: Env, tenant: any, body: any): Promise<Response> {
+    const locationId = body.locationId;
+    if (!locationId) return jsonResponse({ success: false, error: 'Missing locationId for ensure_checkout' }, 400);
 
-import type { Tenant } from './types';
+    // 1. Get GHL token for this location
+    const tokenRow = await getGhlToken(env.DB, locationId);
+    if (!tokenRow || !tokenRow.access_token) {
+        return jsonResponse({ success: false, error: 'No GHL token found for location' }, 404);
+    }
+    const ghltoken = tokenRow.access_token;
 
-async function handleVerify(
-    env: Env,
-    tenant: Tenant,
-    action: GHLQueryAction
-): Promise<Response> {
-    const { chargeId } = action;
-
-    if (!chargeId) {
-        return jsonResponse({ success: false, error: 'Missing chargeId for verify' }, 400);
+    // 2. Get invoiceId/chargeId from request
+    const invoiceId = body.invoiceId || body.chargeId || null;
+    if (!invoiceId) {
+        return jsonResponse({ success: false, error: 'Missing invoiceId or chargeId in request' }, 400);
     }
 
-    // Find the transaction
-    const transaction = await getTransactionByChargeId(env.DB, chargeId);
-    if (!transaction) {
-        return jsonResponse({ success: false, error: 'Transaction not found' }, 404);
-    }
-
-    // If we already know it's completed, return cached status
-    if (transaction.status === 'completed') {
-        return jsonResponse({
-            success: true,
-            status: 'completed',
-            transactionId: transaction.recurrente_payment_id || transaction.recurrente_checkout_id,
+    // 3. Fetch complete invoice from GHL API
+    let invoice: any;
+    try {
+        const invoiceResponse = await fetch(`https://services.leadconnectorhq.com/invoices/${invoiceId}?locationId=${locationId}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${ghltoken}`, 'Version': '2021-07-28' }
         });
+        if (!invoiceResponse.ok) {
+            throw new Error(`Failed to fetch invoice: ${invoiceResponse.statusText}`);
+        }
+        invoice = await invoiceResponse.json();
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return jsonResponse({ success: false, error: `Error fetching invoice: ${errorMessage}` }, 500);
     }
 
-    // Otherwise, check with Recurrente
-    if (transaction.recurrente_checkout_id) {
-        try {
-            const checkoutStatus = await getCheckoutStatus(
-                {
-                    publicKey: tenant.recurrente_public_key,
-                    secretKey: tenant.recurrente_secret_key,
-                },
-                transaction.recurrente_checkout_id
-            );
+    // 4. Extract fields from complete invoice
+    const item = Array.isArray(invoice.invoiceItems) && invoice.invoiceItems.length ? invoice.invoiceItems[0] : null;
+    const chargeId = invoice._id || invoice.invoiceNumber || `${invoice.altId || 'unknown'}-${Date.now()}`;
+    const amount = invoice.total || invoice.invoiceTotal || invoice.amountDue || (item ? item.amount : null);
+    const currency = invoice.currency || (item ? item.currency : null) || 'GTQ';
+    const contactEmail = invoice.contactDetails?.email || '';
+    const contactName = invoice.contactDetails?.name || invoice.contactDetails?.companyName || '';
+    const description = item ? item.name || item.description || invoice.name || 'Pago GHL' : invoice.name || 'Pago GHL';
 
-            const isPaid = checkoutStatus.status === 'paid' || checkoutStatus.status === 'completed';
+    if (!amount || amount <= 0) {
+        return jsonResponse({ success: false, error: 'Invalid amount in invoice' }, 422);
+    }
 
-            if (isPaid) {
-                await updateTransactionByChargeId(
-                    env.DB,
-                    chargeId,
-                    'completed',
-                    checkoutStatus.payment_id
-                );
-            }
+    const amountCents = Math.round(amount * 100);
 
-            return jsonResponse({
-                success: true,
-                status: isPaid ? 'completed' : checkoutStatus.status,
-                transactionId: checkoutStatus.payment_id || transaction.recurrente_checkout_id,
-            });
-        } catch (error) {
-            console.error('[verify] Error checking Recurrente:', error);
-            return jsonResponse({
-                success: true,
-                status: transaction.status,
-                transactionId: transaction.recurrente_checkout_id,
+    // 5. Check if transaction with this exact chargeId already exists
+    const existing = await env.DB.prepare('SELECT * FROM transactions WHERE ghl_charge_id = ? AND location_id = ? AND status = ? LIMIT 1')
+        .bind(chargeId, locationId, 'pending')
+        .first();
+
+    if (existing) {
+        const meta = typeof existing.meta === 'string' ? JSON.parse(existing.meta || '{}') : existing.meta || {};
+        
+        // If amount matches, return existing checkout
+        if (existing.amount === amountCents && meta.recurrente_checkout_url) {
+            console.log(`[ensureCheckoutForLocation] Returning existing checkout for chargeId: ${chargeId}, amount: ${amountCents}`);
+            return jsonResponse({ 
+                success: true, 
+                checkout_url: meta.recurrente_checkout_url, 
+                checkout_id: existing.recurrente_checkout_id,
+                chargeId,
+                source: 'existing'
             });
         }
+        
+        // If amount differs, log and create new checkout
+        console.log(`[ensureCheckoutForLocation] Amount mismatch for chargeId ${chargeId}: existing=${existing.amount}, new=${amountCents}. Creating new checkout.`);
     }
 
-    return jsonResponse({
-        success: true,
-        status: transaction.status,
-    });
+    // 6. Create new Recurrente checkout for this invoice
+    try {
+        const checkout = await createCheckout(
+            { publicKey: tenant.recurrente_public_key, secretKey: tenant.recurrente_secret_key },
+            {
+                amount_in_cents: amountCents,
+                currency,
+                product_name: description,
+                success_url: `${new URL('https://recurrente-bridge.epicgt.workers.dev').origin}/payment/success?charge_id=${chargeId}`,
+                cancel_url: `${new URL('https://recurrente-bridge.epicgt.workers.dev').origin}/payment/cancel?charge_id=${chargeId}`,
+                email: contactEmail,
+                metadata: { ghl_charge_id: chargeId, ghl_location_id: locationId }
+            }
+        );
+
+        // Persist transaction (insert or update)
+        if (existing) {
+            // Update existing transaction with new checkout URL
+            await updateTransactionByChargeId(env.DB, chargeId, 'pending', checkout.id);
+            // Note: The previous call was trying to pass an object where a string was expected.
+            // Based on db.ts: updateTransactionByChargeId(db, chargeId, status, paymentId)
+            console.log(`[ensureCheckoutForLocation] Updated transaction for chargeId: ${chargeId}`);
+        } else {
+            // Create new transaction
+            await createTransaction(env.DB, {
+                location_id: locationId,
+                ghl_charge_id: chargeId,
+                recurrente_checkout_id: checkout.id,
+                amount: amountCents,
+                currency,
+                status: 'pending',
+                meta: { recurrente_checkout_url: checkout.checkout_url }
+            });
+            console.log(`[ensureCheckoutForLocation] Created new transaction for chargeId: ${chargeId}`);
+        }
+
+        return jsonResponse({ 
+            success: true, 
+            checkout_url: checkout.checkout_url, 
+            checkout_id: checkout.id, 
+            chargeId,
+            source: existing ? 'updated' : 'created'
+        });
+    } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        return jsonResponse({ success: false, error: `Failed to create checkout: ${errorMessage}` }, 500);
+    }
+  }
+
+// Ensure arithmetic operations handle non-numeric values
+function safeDivideAmount(amount: any): number {
+    return typeof amount === 'number' ? amount / 100 : 0;
 }

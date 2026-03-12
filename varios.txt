@@ -1,0 +1,307 @@
+{
+    "invoice": {
+        "status": "sent",
+        "discount": {
+            "type": "percentage",
+            "value": 0
+        },
+        "liveMode": true,
+        "deleted": false,
+        "amountPaid": 0,
+        "attachments": [],
+        "_id": "69b2087edd66570616499495",
+        "altId": "F3KaWF6FPROLt1nbADW0",
+        "altType": "location",
+        "companyId": "gCBOj5jYD4QiQTJihqIX",
+        "name": "New Invoice",
+        "businessDetails": {
+            "logoUrl": "https://msgsndr-private.storage.googleapis.com/locationPhotos/a2d7281d-62e3-4639-aab8-9c93c0fb5a91.jpg",
+            "name": " Central de Turismo",
+            "address": {
+                "addressLine1": "4ta Calle",
+                "city": "Villa Nueva",
+                "state": "Guatemala",
+                "countryCode": "GT",
+                "postalCode": "01412",
+                "country": "Guatemala"
+            },
+            "phoneNo": "+50250184097",
+            "website": "https://centraldeturismo.com.gt/"
+        },
+        "invoiceNumber": "000002",
+        "currency": "GTQ",
+        "contactDetails": {
+            "id": "OWDIiRIIrqWx5kmXIIrQ",
+            "name": "mimer epic",
+            "companyName": "Reserva hotel Peten",
+            "phoneNo": "+50241668314",
+            "email": "m@epic.gt",
+            "additionalEmails": [],
+            "address": {
+                "countryCode": "GT",
+                "country": "Guatemala"
+            },
+            "customFields": []
+        },
+        "issueDate": "2026-03-11T06:00:00.000Z",
+        "dueDate": "2026-03-26T05:59:59.999Z",
+        "termsNotes": "",
+        "invoiceItems": [
+            {
+                "taxes": [],
+                "taxInclusive": false,
+                "_id": "69b2087edd6657ce6f499496",
+                "productId": "69966b3cd538ee2a96c4fac5",
+                "priceId": "69966b3c03e7446ccd308ad6",
+                "currency": "GTQ",
+                "name": "test",
+                "qty": 1,
+                "amount": 20,
+                "description": ""
+            }
+        ],
+        "total": 20,
+        "invoiceTotal": 20,
+        "amountDue": 20,
+        "title": "INVOICE",
+        "automaticTaxesCalculated": false,
+        "tipsConfiguration": {
+            "tipsPercentage": [],
+            "tipsEnabled": false
+        },
+        "invoiceNumberPrefix": "INV-",
+        "paymentMethods": {
+            "stripe": {
+                "enableBankDebitOnly": false
+            },
+            "nmi": {
+                "enableBankDebitOnly": false
+            }
+        },
+        "opportunityDetails": null,
+        "configuration": {
+            "precision": 4
+        },
+        "lateFeesConfiguration": {
+            "charges": [],
+            "enable": false,
+            "type": "percentage",
+            "grace": {
+                "interval": "day",
+                "intervalCount": 10
+            },
+            "frequency": {
+                "interval": "month",
+                "intervalCount": 1
+            },
+            "value": 1,
+            "totalLateFees": 0,
+            "collectedLateFees": 0
+        },
+        "syncDetails": [],
+        "tipsReceived": [],
+        "externalTransactions": [],
+        "createdAt": "2026-03-12T00:27:42.687Z",
+        "updatedAt": "2026-03-12T00:44:19.349Z",
+        "__v": 0,
+        "manualStatusTransitions": {
+            "sent": false
+        },
+        "sentAt": "2026-03-12T00:27:51.044Z",
+        "sentBy": "Y9mpWLmumzeOFCluXIME",
+        "sentFrom": null,
+        "sentTo": {
+            "phoneNo": [
+                "+50241668314"
+            ]
+        },
+        "updatedBy": "Y9mpWLmumzeOFCluXIME",
+        "remindersConfiguration": {
+            "reminderExecutionDetailsList": {
+                "4df71d41-a6ac-4e19-977e-9729caab6282": {
+                    "parentTaskId": "69b2088775e3cccc509acb96",
+                    "nextChildTaskId": "69b2088775e3cc77fc9acb9d",
+                    "executeAt": "2026-03-23T00:00:00.000Z",
+                    "executedCount": 0,
+                    "reminderStatus": "initiated"
+                },
+                "e7bd7bc1-5329-42f1-9b4d-8f7a8ea6ec9a": {
+                    "parentTaskId": "69b208875f687551c36f4f3a",
+                    "nextChildTaskId": "69b208875f687540146f4f41",
+                    "executeAt": "2026-03-25T23:00:00.000Z",
+                    "executedCount": 0,
+                    "reminderStatus": "initiated"
+                },
+                "c455459d-bb7b-41c3-b9ab-8b3d5b67b705": {
+                    "parentTaskId": "69b20887794cae40e61f4c76",
+                    "nextChildTaskId": "69b20887794cae2a921f4c7d",
+                    "executeAt": "2026-04-02T14:00:00.000Z",
+                    "executedCount": 0,
+                    "reminderStatus": "initiated"
+                }
+            },
+            "reminderSettings": {
+                "reminders": [
+                    {
+                        "startTime": "8:00 AM",
+                        "endTime": "6:00 PM",
+                        "timezone": "contactTZ",
+                        "reminderName": "Reminder 1",
+                        "enabled": true,
+                        "maxReminders": 1,
+                        "intervalType": "daily",
+                        "reminderTime": "before",
+                        "reminderInvoiceCondition": "invoice_overdue",
+                        "reminderNumber": 3,
+                        "emailTemplate": "default",
+                        "smsTemplate": "default",
+                        "emailSubject": "[{{ invoice.company.name }}] Friendly Reminder: Payment Due Soon for Invoice #[{{ invoice.number }}]",
+                        "reminderId": "4df71d41-a6ac-4e19-977e-9729caab6282"
+                    },
+                    {
+                        "startTime": "8:00 AM",
+                        "endTime": "6:00 PM",
+                        "timezone": "contactTZ",
+                        "reminderName": "Reminder 2",
+                        "enabled": true,
+                        "maxReminders": 1,
+                        "intervalType": "hourly",
+                        "reminderTime": "before",
+                        "reminderInvoiceCondition": "invoice_overdue",
+                        "reminderNumber": 1,
+                        "emailTemplate": "default",
+                        "smsTemplate": "default",
+                        "emailSubject": "[{{ invoice.company.name }}] Action Required: Payment Due Today for Invoice #[{{ invoice.number }}]",
+                        "reminderId": "e7bd7bc1-5329-42f1-9b4d-8f7a8ea6ec9a"
+                    },
+                    {
+                        "startTime": "8:00 AM",
+                        "endTime": "6:00 PM",
+                        "timezone": "contactTZ",
+                        "reminderName": "Reminder 3",
+                        "enabled": true,
+                        "maxReminders": 1,
+                        "intervalType": "daily",
+                        "reminderTime": "after",
+                        "reminderInvoiceCondition": "invoice_overdue",
+                        "reminderNumber": 7,
+                        "emailTemplate": "default",
+                        "smsTemplate": "default",
+                        "emailSubject": "[{{ invoice.company.name }}] Urgent: Invoice #[{{ invoice.number }}] is Overdue",
+                        "reminderId": "c455459d-bb7b-41c3-b9ab-8b3d5b67b705"
+                    }
+                ],
+                "defaultEmailTemplateId": ""
+            }
+        },
+        "lastVisitedAt": "2026-03-12T00:44:19.348Z",
+        "meta": {},
+        "compiledTermsNotes": "",
+        "totalSummary": {
+            "subTotal": 20,
+            "discount": 0
+        },
+        "taxSummary": [],
+        "isAutopaymentEnabled": false
+    },
+    "paymentOptions": {
+        "defaultPaymentProvider": {
+            "provider": "custom-provider",
+            "title": "EPICPay1",
+            "description": "Integración oficial de Recurrente puenteada en Cloudflare",
+            "marketplaceAppId": "69aa4f5d412b25fc2d651a94",
+            "paymentsUrl": "https://recurrente-bridge.epicgt.workers.dev/payment?chargeId={chargeId}&amount={amount}&currency={currency}&contactEmail={contactEmail}&name={name}",
+            "queryUrl": "https://recurrente-bridge.epicgt.workers.dev/api/query",
+            "imageUrl": "https://cdn.recurrente.com/favicon.png",
+            "providerId": "69b203738c7b3a3a17e34806",
+            "providerConfig": {
+                "liveMode": true,
+                "publishableKey": "pubKey_placeholder"
+            }
+        },
+        "hasOneValidPaymentMethod": true
+    },
+    "currencyOptions": {
+        "code": "GTQ",
+        "symbol": "GTQ"
+    },
+    "timezone": "America/Guatemala",
+    "locale": "es",
+    "previewUrl": null,
+    "layout": {
+        "altId": "F3KaWF6FPROLt1nbADW0",
+        "altType": "location",
+        "businessDetails": {
+            "name": {
+                "visible": true
+            },
+            "phoneNo": {
+                "visible": true
+            },
+            "address": {
+                "addressLine1": {
+                    "visible": true
+                },
+                "addressLine2": {
+                    "visible": true
+                },
+                "city": {
+                    "visible": true
+                },
+                "state": {
+                    "visible": true
+                },
+                "countryCode": {
+                    "visible": true
+                },
+                "postalCode": {
+                    "visible": true
+                }
+            },
+            "website": {
+                "visible": true
+            }
+        },
+        "invoiceInformation": {
+            "invoiceNumber": {
+                "visible": true
+            },
+            "issueDate": {
+                "visible": true
+            },
+            "dueDate": {
+                "visible": true
+            }
+        },
+        "invoiceItem": {
+            "name": {
+                "visible": true,
+                "label": "Item Name"
+            },
+            "amount": {
+                "visible": true,
+                "label": "Price"
+            },
+            "qty": {
+                "visible": true,
+                "label": "Quantity"
+            },
+            "taxes": {
+                "visible": true,
+                "label": "Tax"
+            },
+            "subtotal": {
+                "visible": true,
+                "label": "Subtotal"
+            }
+        },
+        "payButton": {
+            "label": "Pay",
+            "color": "#2ead2e"
+        },
+        "border": {
+            "color": "#389fdb"
+        }
+    },
+    "traceId": "a8d6a310-df77-4d9b-9dd1-dc931df51b65"
+}

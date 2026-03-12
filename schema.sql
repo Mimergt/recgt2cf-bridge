@@ -34,3 +34,24 @@ CREATE INDEX IF NOT EXISTS idx_tenants_location ON tenants(location_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_location ON transactions(location_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_ghl_charge ON transactions(ghl_charge_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_recurrente_checkout ON transactions(recurrente_checkout_id);
+
+-- GHL OAuth tokens stored per location (for server-to-server calls)
+CREATE TABLE IF NOT EXISTS ghl_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id TEXT NOT NULL UNIQUE,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT,
+    scopes TEXT,
+    expires_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Bridge settings (key/value) for toggles like webhook_enabled per-location
+CREATE TABLE IF NOT EXISTS bridge_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    value TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
