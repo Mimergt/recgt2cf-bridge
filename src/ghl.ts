@@ -285,16 +285,19 @@ export async function handlePaymentsUrl(
              try {
                const tryGlobalInvoice = (() => {
                  const candidates = [];
-                 try { if (window.__GHL__) candidates.push({ name: 'window.__GHL__', obj: window.__GHL__ }); } catch(e){}
-                 try { if (window.ghl) candidates.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){}
-                 try { if (window.responseData) candidates.push({ name: 'window.responseData', obj: window.responseData }); } catch(e){}
-                 try { if (window.parent && window.parent.__GHL__) candidates.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){}
-                 try { if (window.parent && window.parent.ghl) candidates.push({ name: 'parent.ghl', obj: window.parent.ghl }); } catch(e){}
-                 try { if (window.parent && window.parent.responseData) candidates.push({ name: 'parent.responseData', obj: window.parent.responseData }); } catch(e){}
+                 try { if (window.__GHL__) candidates.push({ name: 'window.__GHL__', obj: window.__GHL__ }); } catch(e){ showDebug('❌ CORS: window.__GHL__', e.message); }
+                 try { if (window.ghl) candidates.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){ showDebug('❌ CORS: window.ghl', e.message); }
+                 try { if (window.responseData) candidates.push({ name: 'window.responseData', obj: window.responseData }); } catch(e){ showDebug('❌ CORS: window.responseData', e.message); }
+                 try { if (window.name) { try { candidates.push({ name: 'window.name', obj: JSON.parse(window.name) }); } catch(ex){ candidates.push({ name: 'window.name (raw)', obj: { name: window.name } }); } } } catch(e){}
+                 
+                 try { if (window.parent && window.parent.__GHL__) candidates.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){ showDebug('❌ CORS: parent.__GHL__', e.message); }
+                 try { if (window.parent && window.parent.ghl) candidates.push({ name: 'parent.ghl', obj: window.parent.ghl }); } catch(e){ showDebug('❌ CORS: parent.ghl', e.message); }
+                 try { if (window.parent && window.parent.responseData) candidates.push({ name: 'parent.responseData', obj: window.parent.responseData }); } catch(e){ showDebug('❌ CORS: parent.responseData', e.message); }
 
                  showDebug('🔍 Checking candidates for global invoice', { found: candidates.length });
                  for (const cand of candidates) {
                    const c = cand.obj;
+                   if (!c) continue;
                    showDebug('🔎 Inspecting candidate: ' + cand.name, { 
                      hasInvoice: !!c.invoice,
                      isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
@@ -308,7 +311,7 @@ export async function handlePaymentsUrl(
                })();
 
                if (tryGlobalInvoice) {
-                 showDebug('📥 Found invoice in global object', { source: 'sync', total: tryGlobalInvoice.total });
+                 showDebug('📥 Found invoice in global object (sync)', { total: tryGlobalInvoice.total });
                  const inv = tryGlobalInvoice;
                  const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
                  const mapped = {
@@ -378,11 +381,19 @@ export async function handlePaymentsUrl(
               window.addEventListener('message', onMsgOnce);
               // also short-circuit if parent/window has invoice immediately
               try {
+                // Send a nudge to parent in case it's listening
+                if (window.parent) {
+                  showDebug('📡 Sending postMessage ping to parent...');
+                  window.parent.postMessage({ type: 'REQUEST_INVOICE_DATA', source: 'recurrente-bridge' }, '*');
+                }
+
                 const tryGlobalInvoice2 = (() => {
                   const cands = [];
                   try { if (window.__GHL__) cands.push({ name: 'window.__GHL__', obj: window.__GHL__ }); } catch(e){}
                   try { if (window.ghl) cands.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){}
                   try { if (window.responseData) cands.push({ name: 'window.responseData', obj: window.responseData }); } catch(e){}
+                  try { if (window.name) { try { cands.push({ name: 'window.name', obj: JSON.parse(window.name) }); } catch(ex){} } } catch(e){}
+                  
                   try { if (window.parent && window.parent.__GHL__) cands.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){}
                   try { if (window.parent && window.parent.ghl) cands.push({ name: 'parent.ghl', obj: window.parent.ghl }); } catch(e){}
                   try { if (window.parent && window.parent.responseData) cands.push({ name: 'parent.responseData', obj: window.parent.responseData }); } catch(e){}
@@ -390,6 +401,7 @@ export async function handlePaymentsUrl(
                   showDebug('🔍 Checking candidates for global invoice (short-circuit)', { found: cands.length });
                   for (const cand of cands) {
                     const c = cand.obj;
+                    if (!c) continue;
                     showDebug('🔎 Inspecting candidate (short-circuit): ' + cand.name, { 
                       hasInvoice: !!c.invoice,
                       isInvoiceLike: !!(c.total || c.amountDue || c.invoiceNumber)
@@ -402,7 +414,7 @@ export async function handlePaymentsUrl(
                   return null;
                 })();
                 if (tryGlobalInvoice2) {
-                  showDebug('📥 Found invoice in global object', { source: 'short-circuit', total: tryGlobalInvoice2.total });
+                  showDebug('📥 Found invoice in global object (short-circuit)', { total: tryGlobalInvoice2.total });
                   const inv2 = tryGlobalInvoice2;
                   const item = Array.isArray(inv2.invoiceItems) && inv2.invoiceItems.length ? inv2.invoiceItems[0] : null;
                   const mapped2 = {
@@ -426,10 +438,11 @@ export async function handlePaymentsUrl(
               // timeout: proceed to server discovery if nothing arrives
               setTimeout(() => {
                 if (!resolved) {
+                  showDebug('⏱️ Timeout waiting for local/global data - falling back to server query');
                   try { window.removeEventListener('message', onMsgOnce); } catch(e){}
                   resolve(false);
                 }
-              }, 1200);
+              }, 3000);
             });
 
             const possibleLocationId = 
