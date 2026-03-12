@@ -123,24 +123,58 @@ export async function handlePaymentsUrl(
     async function init() {
       log('Start', { url: location.href, ref: REF });
       const p = new URLSearchParams(location.search);
-      const cid = p.get('chargeId') || getID(location.href) || getID(REF);
-      const lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
-      const amt = p.get('amount') || '';
+      
+      // Initial check from URL
+      let cid = p.get('chargeId');
+      let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
+      let amt = p.get('amount') || '';
 
-      log('Data', { cid, lid, amt });
-
-      if (cid && lid) {
-        if (amt && !amt.includes('{')) {
-           log('Create direct');
-           await go({ chargeId: cid, locationId: lid, amount: amt, email: p.get('contactEmail') });
-        } else {
-           log('Resolve server');
-           await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
-        }
-      } else {
-        log('Manual mode');
-        show();
+      // If we have real data (not placeholders), start immediately
+      if (cid && !cid.includes('{') && lid) {
+        log('Immediate start (URL)');
+        await go({ chargeId: cid, locationId: lid, amount: amt, email: p.get('contactEmail') });
+        return;
       }
+
+      log('Waiting for GHL data (postMessage)...');
+      
+      // Save lid if found
+      if (lid && lid !== 'null') localStorage.setItem('ghl_location_id', lid);
+
+      // Listen for GHL data
+      window.addEventListener('message', async (e) => {
+        const raw = e.data;
+        if (!raw) return;
+        
+        log('Msg received', { type: typeof raw, keys: typeof raw === 'object' ? Object.keys(raw) : 'n/a' });
+        
+        // Convert Proxy/Complex objects to plain ones
+        let data = {};
+        try { data = JSON.parse(JSON.stringify(raw)); } catch(err) { data = raw; }
+        
+        const payload = data.payload || data.data || data;
+        const targetCid = payload.chargeId || payload.id || (payload.invoice && (payload.invoice.id || payload.invoice._id));
+        const targetLid = payload.locationId || lid;
+        
+        if (targetCid && !String(targetCid).includes('{')) {
+          log('ID found in msg!', targetCid);
+          if (targetLid) {
+            await go({ chargeId: targetCid, locationId: targetLid, amount: payload.amount || '{amount}' });
+          } else {
+            log('Wait for lid');
+          }
+        }
+      });
+
+      // Ping parent for data
+      window.parent.postMessage({ type: 'REQUEST_PAYMENT_DATA', action: 'get_charge' }, '*');
+      window.parent.postMessage({ action: 'get_charge' }, '*');
+      
+      // 10s timeout to show manual mode
+      setTimeout(() => {
+        log('Timeout reached');
+        show();
+      }, 10000);
     }
 
     async function go(pay) {
