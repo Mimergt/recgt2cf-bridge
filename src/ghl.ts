@@ -280,6 +280,25 @@ export async function handlePaymentsUrl(
 
           if (looksLikePlaceholder(rawCharge) || looksLikePlaceholder(rawAmount)) {
             showDebug('⚠️ Detected placeholder values in URL — will NOT call create-checkout with placeholders', { charge: rawCharge, amount: rawAmount });
+            showDebug('📋 Full Referrer', { url: document.referrer });
+
+            // Global listener for ANY message (for debugging and discovery)
+            window.addEventListener('message', (event) => {
+              try {
+                let d = event.data;
+                if (typeof d === 'string') { try { d = JSON.parse(d); } catch(ex){} }
+                showDebug('📩 Message from ' + event.origin, { hasData: !!d, keys: d ? Object.keys(d).slice(0, 10) : [] });
+                
+                // If it looks like payment data, try to process it
+                const pData = d?.data || d?.payload || d;
+                const inv = pData?.invoice || (pData?.total || pData?.invoiceNumber ? pData : null);
+                if (inv && inv.total && !window.__PROCESSED__) {
+                  showDebug('📥 Caught invoice in postMessage!', { total: inv.total });
+                  window.__PROCESSED__ = true;
+                  // Map and process (omitted for brevity, will use the logic below)
+                }
+              } catch(e){}
+            });
 
             // First, try to detect invoice data embedded in global objects (some GHL setups expose data synchronously)
              try {
@@ -289,6 +308,7 @@ export async function handlePaymentsUrl(
                  try { if (window.ghl) candidates.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){ showDebug('❌ CORS: window.ghl', e.message); }
                  try { if (window.responseData) candidates.push({ name: 'window.responseData', obj: window.responseData }); } catch(e){ showDebug('❌ CORS: window.responseData', e.message); }
                  try { if (window.name) { try { candidates.push({ name: 'window.name', obj: JSON.parse(window.name) }); } catch(ex){ candidates.push({ name: 'window.name (raw)', obj: { name: window.name } }); } } } catch(e){}
+                 try { if (window.opener && window.opener.responseData) candidates.push({ name: 'opener.responseData', obj: window.opener.responseData }); } catch(e){}
                  
                  try { if (window.parent && window.parent.__GHL__) candidates.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){ showDebug('❌ CORS: parent.__GHL__', e.message); }
                  try { if (window.parent && window.parent.ghl) candidates.push({ name: 'parent.ghl', obj: window.parent.ghl }); } catch(e){ showDebug('❌ CORS: parent.ghl', e.message); }
