@@ -287,10 +287,10 @@ export async function handlePaymentsUrl(
                  const candidates = [];
                  try { if (window.__GHL__) candidates.push({ name: 'window.__GHL__', obj: window.__GHL__ }); } catch(e){}
                  try { if (window.ghl) candidates.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){}
-                 try { if ((window as any).responseData) candidates.push({ name: 'window.responseData', obj: (window as any).responseData }); } catch(e){}
+                 try { if (window.responseData) candidates.push({ name: 'window.responseData', obj: window.responseData }); } catch(e){}
                  try { if (window.parent && window.parent.__GHL__) candidates.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){}
-                 try { if (window.parent && (window.parent as any).ghl) candidates.push({ name: 'parent.ghl', obj: (window.parent as any).ghl }); } catch(e){}
-                 try { if (window.parent && (window.parent as any).responseData) candidates.push({ name: 'parent.responseData', obj: (window.parent as any).responseData }); } catch(e){}
+                 try { if (window.parent && window.parent.ghl) candidates.push({ name: 'parent.ghl', obj: window.parent.ghl }); } catch(e){}
+                 try { if (window.parent && window.parent.responseData) candidates.push({ name: 'parent.responseData', obj: window.parent.responseData }); } catch(e){}
 
                  showDebug('🔍 Checking candidates for global invoice', { found: candidates.length });
                  for (const cand of candidates) {
