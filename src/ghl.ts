@@ -122,7 +122,7 @@ export async function handlePaymentsUrl(
 
     async function init() {
       const docRef = document.referrer || '';
-      log('Protocol Universal V6', { url: location.href, docRef: docRef });
+      log('Protocol Master V7', { url: location.href, docRef: docRef, name: window.name });
       
       const p = new URLSearchParams(location.search);
       const HEX_RGX = /[a-fA-F0-9]{24}/g;
@@ -137,47 +137,46 @@ export async function handlePaymentsUrl(
         return (matches && matches.length > 0) ? matches[matches.length - 1] : null;
       }
 
-      // 1. Detección inmediata mejorada
-      let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef);
+      // Check current URL, Referrer and window.name (GHL sometimes uses name for data)
+      let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef) || findInStr(window.name);
       let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
 
-      // Resolución de cuenta si tenemos ID de factura
+      // Auto-resolution if we have an ID
       if (isReal(cid) && (!isReal(lid) || lid === 'unknown')) {
-          log('Resolving account...', cid);
+          log('Hunting account for', cid);
           try {
             const res = await fetch(WORKER + '/api/resolve-location', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ chargeId: cid })
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chargeId: cid })
             });
             const d = await res.json();
             if (d.success && d.locationId) {
-              log('Resolved!', d.locationId);
-              lid = d.locationId;
-              localStorage.setItem('ghl_location_id', lid);
+                lid = d.locationId;
+                localStorage.setItem('ghl_location_id', lid);
+                log('Account scavenged!', lid);
             }
           } catch(e) {}
       }
 
       if (isReal(cid) && isReal(lid)) {
-        log('Auto-detect success', cid);
+        log('Redirecting V7...', cid);
         await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         return;
       }
 
-      // 2. Receptor de mensajes Universal
+      // UNIVERSAL LISTENER - Listens for GHL data events
       window.addEventListener('message', async (e) => {
         try {
           const raw = e.data;
           if (!raw) return;
-          
-          log('Incoming ' + e.origin, { type: typeof raw });
+          log('Incoming from ' + e.origin, { type: typeof raw });
 
-          function hunt(obj, depth = 0) {
+          function deepHunt(obj, depth = 0) {
             if (!obj || depth > 8) return null;
             if (typeof obj === 'string') return findInStr(obj);
             if (typeof obj !== 'object') return null;
             
-            // BUSCAR EN EL OBJETO RESPONSE DATA DE GHL
+            // Search in common GHL response structures
             const potential = obj.chargeId || obj.id || obj.invoiceId || 
                              (obj.invoice && (obj.invoice.id || obj.invoice._id)) ||
                              (obj.payload && (obj.payload.chargeId || obj.payload.id || obj.payload.invoiceId)) ||
@@ -187,53 +186,62 @@ export async function handlePaymentsUrl(
             
             for (let k in obj) {
               try {
-                const res = hunt(obj[k], depth + 1);
+                const res = deepHunt(obj[k], depth + 1);
                 if (res) return res;
               } catch(err) {}
             }
             return null;
           }
 
-          let id = hunt(raw);
+          let id = deepHunt(raw);
           if (!id && typeof raw === 'string' && raw.includes('{')) {
-            try { id = hunt(JSON.parse(raw)); } catch(err) {}
+            try { id = deepHunt(JSON.parse(raw)); } catch(err) {}
           }
 
           if (id) {
-            log('CAUGHT!', id);
+            log('DATA CAUGHT!', id);
             await go({ chargeId: id, locationId: lid || 'unknown', amount: '{amount}' });
           }
-        } catch (err) { log('Listener Err', err.message); }
+        } catch (err) { log('Capture Err', err.message); }
       });
 
-      // 3. HANDSHAKE UNIVERSAL V6 (JSON Strings para evitar errores de parseo en GHL)
-      function sendHandshake() {
-        log('Sending Multi-Path Handshake...');
-        const handshakes = [
-            JSON.stringify({ type: 'READY_TO_RECEIVE_DATA', source: 'ghl-custom-component' }),
-            JSON.stringify({ type: 'PAYMENT_PROVIDER_READY', source: 'ghl-custom-component' }),
-            JSON.stringify({ action: 'ghl-custom-component-ready', source: 'ghl-custom-component' }),
-            'ghl-custom-component-ready'
+      // THE GHL ULTIMATE HANDSHAKE 
+      // Sends specialized messages to "unlock" the parent's data sharing
+      function doPings() {
+        log('Triggering GHL Handshake...');
+        const messages = [
+            { type: 'READY_TO_RECEIVE_DATA', source: 'ghl-custom-component' },
+            { type: 'PAYMENT_PROVIDER_READY', source: 'ghl-custom-component' },
+            { action: 'get_charge', source: 'ghl-custom-component' },
+            'ghl-custom-component-ready',
+            'payment_ready'
         ];
         
-        handshakes.forEach(h => {
+        messages.forEach(m => {
           try {
-            window.parent.postMessage(h, '*');
-            window.top.postMessage(h, '*');
+            // Send as object
+            window.parent.postMessage(m, '*');
+            window.top.postMessage(m, '*');
+            // Send as JSON string
+            if (typeof m !== 'string') {
+              const str = JSON.stringify(m);
+              window.parent.postMessage(str, '*');
+              window.top.postMessage(str, '*');
+            }
           } catch(e) {}
         });
       }
 
-      sendHandshake();
-      const interval = setInterval(sendHandshake, 3000);
+      doPings();
+      const intv = setInterval(doPings, 3000);
 
       setTimeout(() => {
-        clearInterval(interval);
+        clearInterval(intv);
         if (isReal(cid)) {
-           log('Force proceed with', cid);
+           log('Timeout: Proceeding with cached ID', cid);
            go({ chargeId: cid, locationId: lid || 'unknown', amount: '{amount}' });
         } else {
-           log('Automatic detection timeout');
+           log('Search timeout');
            show();
         }
       }, 15000);
