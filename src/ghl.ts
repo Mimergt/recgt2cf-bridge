@@ -170,17 +170,14 @@ export async function handlePaymentsUrl(
     let messageLog = [];
 
     function showDebug(label, data) {
-      const timestamp = new Date().toLocaleTimeString('es-ES');
-      const box = document.getElementById('debug-box');
-      if (box) {
-        // Make sure debug box is visible
-        box.classList.add('active');
-        const entry = '[' + timestamp + '] <b>' + label + ':</b><br>' + JSON.stringify(data, null, 2) + '<br>';
-        box.innerHTML += entry;
-        messageLog.push({ timestamp, label, data });
-        // Auto scroll to bottom
-        box.scrollTop = box.scrollHeight;
       }
+    }
+
+    function extractInvoiceId(url) {
+      if (!url) return null;
+      // Patterns: /invoice/ID, /invoices/ID, or query param invoiceId=ID
+      const m = url.match(/\/invoices?\/([a-fA-F0-9-]+)/) || url.match(/invoiceId=([a-fA-F0-9-]+)/);
+      return m ? m[1] : null;
     }
 
     async function processPayment(data) {
@@ -257,6 +254,7 @@ export async function handlePaymentsUrl(
           referer: HTTP_REFERER,
           userAgent: '${userAgent}'
         });
+        showDebug('📍 Domain Info', {
           origin: window.location.origin,
           pathname: window.location.pathname
         });
@@ -278,6 +276,16 @@ export async function handlePaymentsUrl(
         showDebug('🏷️ Hash Params', hashData);
 
         const merged = { ...urlData, ...hashData };
+        
+        // Try to extract invoiceId from referer or URL if not present
+        if (!merged.chargeId) {
+          const fromReferer = extractInvoiceId(HTTP_REFERER);
+          const fromCurrent = extractInvoiceId(window.location.href);
+          if (fromReferer || fromCurrent) {
+             merged.chargeId = fromReferer || fromCurrent;
+             showDebug('💡 Extracted chargeId from URL/Referer', { chargeId: merged.chargeId, source: fromReferer ? 'referer' : 'current' });
+          }
+        }
 
         if (merged.chargeId || merged.charge_id) {
           showDebug('✨ Found chargeId in URL/hash params', { chargeId: merged.chargeId || merged.charge_id });
