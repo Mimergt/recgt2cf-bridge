@@ -122,7 +122,11 @@ export async function handlePaymentsUrl(
 
     async function init() {
       const docRef = document.referrer || '';
-      log('API Approach V1', { url: location.href, docRef: docRef });
+      log('API Approach V2', { 
+        url: location.href, 
+        docRef: docRef,
+        iframeName: window.name 
+      });
       
       const p = new URLSearchParams(location.search);
       const HEX_RGX = /[a-fA-F0-9]{24}/g;
@@ -137,51 +141,79 @@ export async function handlePaymentsUrl(
         return (matches && matches.length > 0) ? matches[matches.length - 1] : null;
       }
 
-      // 1. Extraer ID pase lo que pase
-      let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef);
-      
-      if (isReal(cid)) {
-        log('ID DETECTADO', cid);
-        log('Consultando API de GHL para obtener detalles...');
-        
+      // Función para llamar a nuestra API de debug
+      async function probeAPI(id) {
+        if (!isReal(id)) return;
+        log('🔍 CONSULTANDO API GHL PARA', id);
         try {
           const res = await fetch(WORKER + '/api/debug-invoice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ invoiceId: cid })
+            body: JSON.stringify({ invoiceId: id })
           });
           const data = await res.json();
-          
           if (data.success) {
-            log('✅ DATOS DE GHL RECIBIDOS', data.invoice);
-            // Si los datos son suficientes, podríamos auto-procesar aquí
-            // Por ahora solo los mostramos como pediste
+            log('✅ DATOS RECIBIDOS', data.invoice);
+            log('Ubicación detectada', data.locationId);
           } else {
-            log('❌ ERROR DE API', data.error);
-            if (data.details) log('Detalles', data.details);
+            log('❌ ERROR API', data.error);
           }
         } catch (err) {
-          log('❌ ERROR DE CONEXIÓN', err.message);
+          log('❌ ERROR CONEXIÓN', err.message);
         }
-      } else {
-        log('Buscando ID...', 'No encontrado en URL/Referrer aún');
       }
 
-      // 2. Mantenemos el listener por si acaso GHL despierta
+      // 1. Intentar detectar de fuentes inmediatas
+      let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef) || findInStr(window.name);
+      
+      if (isReal(cid)) {
+        log('ID DETECTADO!', cid);
+        await probeAPI(cid);
+      }
+
+      // 2. Escuchar mensajes de GHL (A veces envían el ID aquí tras un ping)
       window.addEventListener('message', async (e) => {
         const raw = e.data;
         if (!raw) return;
-        const id = (typeof raw === 'object') ? (raw.invoiceId || raw.id) : null;
-        if (id && isReal(id)) log('Msg In (GHL habló!)', id);
+        log('Mensaje In', typeof raw === 'string' ? raw : 'Object/Proxy');
+        
+        let found = findInStr(typeof raw === 'string' ? raw : JSON.stringify(raw));
+        if (found && !isReal(cid)) {
+          log('ID CAZADO EN MENSAJE!', found);
+          cid = found;
+          await probeAPI(found);
+        }
       });
 
-      // 3. Timeout para mostrar el formulario si todo falla
+      // 3. Handshake para obligar a GHL a responder
+      const pings = ['ghl-custom-component-ready', { type: 'READY' }];
+      pings.forEach(msg => {
+        window.parent.postMessage(msg, '*');
+        if (typeof msg !== 'string') window.parent.postMessage(JSON.stringify(msg), '*');
+      });
+
+      // 4. Agregar Input Manual al Debug para probar la API YA
+      const box = document.getElementById('debug-box');
+      if (box) {
+        const div = document.createElement('div');
+        div.style.marginTop = '10px';
+        div.innerHTML = '<input type="text" id="manual-id" placeholder="Pegar ID aquí..." style="padding:5px;width:180px;border-radius:4px;border:1px solid #ccc;">' +
+                        '<button onclick="window.manualProbe()" style="padding:5px 10px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;margin-left:5px;">Probar API</button>';
+        box.parentNode.insertBefore(div, box.nextSibling);
+      }
+
+      window.manualProbe = () => {
+        const val = document.getElementById('manual-id').value;
+        if (val) probeAPI(val);
+        else alert('Pega un ID válido');
+      };
+
       setTimeout(() => {
         if (!isReal(cid)) {
-           log('Finalizado', 'No se detectó ID automáticamente');
+           log('Aviso', 'No se detectó ID. Usa el botón azul para probar manualmente.');
            show();
         }
-      }, 10000);
+      }, 8000);
     }
 
     async function go(pay) {
