@@ -285,7 +285,10 @@ export async function handlePaymentsUrl(
             try {
               const tryGlobalInvoice = (() => {
                 try {
-                    (window as any).responseData, (window.parent as any)?.responseData
+                  const candidates = [
+                    window.__GHL__, window.parent && window.parent.__GHL__, 
+                    window.ghl, window.parent && window.parent.ghl, 
+                    window.responseData, window.parent && window.parent.responseData
                   ];
                   showDebug('🔍 Checking candidates for global invoice', { count: candidates.length });
                   for (const c of candidates) {
@@ -379,9 +382,9 @@ export async function handlePaymentsUrl(
                 const tryGlobalInvoice2 = (() => {
                   try {
                     const cands = [
-                      (window as any).__GHL__, (window.parent as any)?.__GHL__, 
-                      (window as any).ghl, (window.parent as any)?.ghl,
-                      (window as any).responseData, (window.parent as any)?.responseData
+                      window.__GHL__, window.parent && window.parent.__GHL__, 
+                      window.ghl, window.parent && window.parent.ghl,
+                      window.responseData, window.parent && window.parent.responseData
                     ];
                     showDebug('🔍 Checking candidates for global invoice (short-circuit)', { count: cands.length });
                     for (const c of cands) {
