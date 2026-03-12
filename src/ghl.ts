@@ -930,15 +930,64 @@ export async function handleCreateCheckout(
     const body = await request.json<{
         locationId: string;
         chargeId: string;
-        amount: number;
+        amount: any; // Allow any type to handle placeholders
         currency?: string;
         contactName?: string;
         contactEmail?: string;
         description?: string;
     }>();
 
-    if (!body.locationId || !body.chargeId || !body.amount) {
-        return jsonResponse({ success: false, error: 'Missing required fields: locationId, chargeId, amount' }, 400);
+    let finalAmount = body.amount;
+    let finalLocationId = body.locationId;
+    let finalContactEmail = body.contactEmail;
+    let finalContactName = body.contactName;
+    let finalDescription = body.description;
+
+    const isPlaceholder = (v: any) => typeof v === 'string' && v.includes('{');
+
+    if (!finalLocationId || !body.chargeId || isPlaceholder(finalAmount)) {
+        // If amount is missing/placeholder, we MUST have locationId to fetch from GHL
+        if (!finalLocationId) {
+            return jsonResponse({ success: false, error: 'Missing locationId — cannot resolve invoice without it' }, 400);
+        }
+
+        // Try to fetch real invoice data from GHL
+        try {
+            const ghlTokenRow = await getGhlToken(env.DB, finalLocationId);
+            if (ghlTokenRow) {
+                const gToken = (ghlTokenRow as any).access_token;
+                const gResp = await fetch(`https://services.leadconnectorhq.com/payments/invoices/${body.chargeId}?locationId=${finalLocationId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${gToken}`,
+                        'Version': '2021-07-28'
+                    }
+                });
+                if (gResp.ok) {
+                    const gData = await gResp.json() as any;
+                    const inv = gData.invoice;
+                    if (inv) {
+                        finalAmount = inv.total || inv.amountDue;
+                        finalContactEmail = finalContactEmail || inv.contactDetails?.email;
+                        finalContactName = finalContactName || inv.contactDetails?.name || inv.contactDetails?.companyName;
+                        if (!finalDescription || isPlaceholder(finalDescription)) {
+                            const item = inv.invoiceItems?.[0];
+                            finalDescription = item?.name || item?.description || inv.name || 'Pago GHL';
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to resolve GHL invoice server-side:', e);
+        }
+    }
+
+    if (!finalLocationId || !body.chargeId || !finalAmount || isPlaceholder(finalAmount)) {
+        return jsonResponse({ 
+            success: false, 
+            error: `Could not resolve valid payment details. Amount: ${finalAmount}`,
+            resolvedAmount: finalAmount,
+            locationId: finalLocationId
+        }, 400);
     }
 
     // 1. Look up tenant credentials
@@ -962,26 +1011,26 @@ export async function handleCreateCheckout(
             secretKey: tenant.recurrente_secret_key,
         },
         {
-            amount_in_cents: toCents(body.amount),
+            amount_in_cents: toCents(finalAmount),
             currency: body.currency || 'GTQ',
-            product_name: body.description || 'Pago GHL',
+            product_name: finalDescription || 'Pago GHL',
             success_url: successUrl,
             cancel_url: cancelUrl,
-            email: body.contactEmail,
+            email: finalContactEmail,
             metadata: {
                 ghl_charge_id: body.chargeId,
-                ghl_location_id: body.locationId,
-                contact_name: body.contactName || '',
+                ghl_location_id: finalLocationId,
+                contact_name: finalContactName || '',
             },
         }
     );
 
     // 4. Log the transaction
     await createTransaction(env.DB, {
-        location_id: body.locationId,
+        location_id: finalLocationId,
         ghl_charge_id: body.chargeId,
         recurrente_checkout_id: checkout.id,
-        amount: toCents(body.amount),
+        amount: Number(finalAmount),
         currency: body.currency || 'GTQ',
         status: 'pending',
         meta: { recurrente_checkout_url: checkout.checkout_url },
