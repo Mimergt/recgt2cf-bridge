@@ -285,12 +285,18 @@ export async function handlePaymentsUrl(
             try {
               const tryGlobalInvoice = (() => {
                 try {
-                  const candidates = [window.__GHL__, window.parent && window.parent.__GHL__, window.ghl, window.parent && window.parent.ghl];
+                  const candidates = [
+                    window.__GHL__, window.parent && window.parent.__GHL__, 
+                    window.ghl, window.parent && window.parent.ghl, 
+                    (window as any).responseData, (window.parent as any)?.responseData
+                  ];
                   for (const c of candidates) {
                     if (!c) continue;
                     if (c.invoice) return c.invoice;
                     if (c.payload && c.payload.invoice) return c.payload.invoice;
                     if (c.data && c.data.invoice) return c.data.invoice;
+                    // Directly check if candidate IS the invoice (for responseData style)
+                    if (c.total || c.amountDue || c.invoiceNumber) return c;
                   }
                 } catch (e) { /* ignore cross-origin */ }
                 return null;
@@ -369,12 +375,18 @@ export async function handlePaymentsUrl(
               try {
                 const tryGlobalInvoice2 = (() => {
                   try {
-                    const cands = [window.__GHL__, window.parent && window.parent.__GHL__, window.ghl, window.parent && window.parent.ghl];
+                    const cands = [
+                      window.__GHL__, window.parent && window.parent.__GHL__, 
+                      window.ghl, window.parent && window.parent.ghl,
+                      (window as any).responseData, (window.parent as any)?.responseData
+                    ];
                     for (const c of cands) {
                       if (!c) continue;
                       if (c.invoice) return c.invoice;
                       if (c.payload && c.payload.invoice) return c.payload.invoice;
                       if (c.data && c.data.invoice) return c.data.invoice;
+                      // Directly check if candidate IS the invoice
+                      if (c.total || c.amountDue || c.invoiceNumber) return c;
                     }
                   } catch(e) {}
                   return null;
