@@ -382,10 +382,10 @@ export async function handlePaymentsUrl(
                   const cands = [];
                   try { if (window.__GHL__) cands.push({ name: 'window.__GHL__', obj: window.__GHL__ }); } catch(e){}
                   try { if (window.ghl) cands.push({ name: 'window.ghl', obj: window.ghl }); } catch(e){}
-                  try { if ((window as any).responseData) cands.push({ name: 'window.responseData', obj: (window as any).responseData }); } catch(e){}
+                  try { if (window.responseData) cands.push({ name: 'window.responseData', obj: window.responseData }); } catch(e){}
                   try { if (window.parent && window.parent.__GHL__) cands.push({ name: 'parent.__GHL__', obj: window.parent.__GHL__ }); } catch(e){}
-                  try { if (window.parent && (window.parent as any).ghl) cands.push({ name: 'parent.ghl', obj: (window.parent as any).ghl }); } catch(e){}
-                  try { if (window.parent && (window.parent as any).responseData) cands.push({ name: 'parent.responseData', obj: (window.parent as any).responseData }); } catch(e){}
+                  try { if (window.parent && window.parent.ghl) cands.push({ name: 'parent.ghl', obj: window.parent.ghl }); } catch(e){}
+                  try { if (window.parent && window.parent.responseData) cands.push({ name: 'parent.responseData', obj: window.parent.responseData }); } catch(e){}
 
                   showDebug('🔍 Checking candidates for global invoice (short-circuit)', { found: cands.length });
                   for (const cand of cands) {
@@ -403,15 +403,16 @@ export async function handlePaymentsUrl(
                 })();
                 if (tryGlobalInvoice2) {
                   showDebug('📥 Found invoice in global object', { source: 'short-circuit', total: tryGlobalInvoice2.total });
-                  const item = Array.isArray(inv.invoiceItems) && inv.invoiceItems.length ? inv.invoiceItems[0] : null;
+                  const inv2 = tryGlobalInvoice2;
+                  const item = Array.isArray(inv2.invoiceItems) && inv2.invoiceItems.length ? inv2.invoiceItems[0] : null;
                   const mapped2 = {
-                    chargeId: inv._id || inv.invoiceNumber || ((inv.altId || 'unknown') + '-' + Date.now()),
-                    amount: inv.total || inv.invoiceTotal || inv.amountDue || (item ? item.amount : null),
-                    currency: inv.currency || (item ? item.currency : null) || 'GTQ',
-                    contactName: inv.contactDetails?.name || inv.contactDetails?.companyName || '',
-                    contactEmail: inv.contactDetails?.email || '',
-                    description: item ? item.name || item.description || inv.name || 'Pago GHL' : inv.name || 'Pago GHL',
-                    locationId: inv.altId || (inv.layout && inv.layout.altId) || null
+                    chargeId: inv2._id || inv2.invoiceNumber || ((inv2.altId || 'unknown') + '-' + Date.now()),
+                    amount: inv2.total || inv2.invoiceTotal || inv2.amountDue || (item ? item.amount : null),
+                    currency: inv2.currency || (item ? item.currency : null) || 'GTQ',
+                    contactName: inv2.contactDetails?.name || inv2.contactDetails?.companyName || '',
+                    contactEmail: inv2.contactDetails?.email || '',
+                    description: item ? item.name || item.description || inv2.name || 'Pago GHL' : inv2.name || 'Pago GHL',
+                    locationId: inv2.altId || (inv2.layout && inv2.layout.altId) || null
                   };
                   if (mapped2.amount && Number(mapped2.amount) > 0) {
                     resolved = true;
