@@ -158,68 +158,81 @@ export async function handlePaymentsUrl(
         return;
       }
 
-      log('Waiting for msg...');
+      log('Super Scavenger Active');
       if (lid && lid !== 'null') localStorage.setItem('ghl_location_id', lid);
 
-      // Deep search for anything that looks like an ID
-      function deepFind(obj, depth = 0) {
-        if (!obj || depth > 5) return null;
-        if (typeof obj !== 'object') return null;
-        
-        const possible = obj.chargeId || obj.id || obj.invoiceId || (obj.invoice && (obj.invoice.id || obj.invoice._id));
-        if (possible && !String(possible).includes('{')) return possible;
-        
-        for (let k in obj) {
-          try {
-            const res = deepFind(obj[k], depth + 1);
-            if (res) return res;
-          } catch(e) {}
-        }
-        return null;
-      }
-
+      // Listen for EVERYTHING
       window.addEventListener('message', async (e) => {
         const raw = e.data;
         if (!raw) return;
         
-        log('Msg In from ' + e.origin, { hasKeys: typeof raw === 'object' ? Object.keys(raw).join(',') : 'no' });
+        // Log details of any incoming message to help us identify GHL's format
+        const keys = (typeof raw === 'object' && raw !== null) ? Object.keys(raw).join(',') : 'none';
+        log('Msg from ' + e.origin, { type: typeof raw, keys: keys });
         
-        // Try to find ID in the payload
-        let foundId = deepFind(raw);
-        if (!foundId && typeof raw === 'string' && raw.includes('{')) {
-          try { foundId = deepFind(JSON.parse(raw)); } catch(err) {}
+        if (typeof raw === 'string' && raw.includes('{')) {
+           log('Stringified JSON detected');
         }
 
-        if (foundId) {
-          log('ID Scavenged!', foundId);
-          await go({ chargeId: foundId, locationId: lid || 'unknown', amount: '{amount}' });
+        // Deep search for any ID
+        function findIn(obj, depth = 0) {
+          if (!obj || depth > 4) return null;
+          if (typeof obj !== 'object') return null;
+          
+          const id = obj.chargeId || obj.id || obj.invoiceId || (obj.invoice && (obj.invoice.id || obj.invoice._id)) || (obj.payload && (obj.payload.chargeId || obj.payload.id));
+          if (id && !String(id).includes('{')) return id;
+          
+          for (let k in obj) {
+            const res = findIn(obj[k], depth + 1);
+            if (res) return res;
+          }
+          return null;
+        }
+
+        let idFound = findIn(raw);
+        if (!idFound && typeof raw === 'string') {
+          try { idFound = findIn(JSON.parse(raw)); } catch(err) {}
+        }
+
+        if (idFound) {
+          log('ID scavenged via MSG!', idFound);
+          await go({ chargeId: idFound, locationId: lid || 'unknown', amount: '{amount}' });
         }
       });
 
-      // GHL Handshakes
-      const pings = [
-        'READY',
-        { action: 'get_charge' },
-        { type: 'READY' },
-        { event: 'payment_ready' },
-        { method: 'get_charge' }
-      ];
-      pings.forEach(p => {
-        window.parent.postMessage(p, '*');
-        if (typeof p !== 'string') window.parent.postMessage(JSON.stringify(p), '*');
-      });
+      // Aggressive GHL Handshakes
+      function ping() {
+        log('Sending Handshakes...');
+        const targets = [
+          { type: 'READY' },
+          { type: 'init' },
+          { action: 'get_charge' },
+          { source: 'ghl-custom-component', event: 'ready' },
+          { source: 'ghl-custom-component', type: 'PAYMENT_PROVIDER_READY' },
+          'READY',
+          'payment_ready'
+        ];
+        targets.forEach(t => {
+          window.parent.postMessage(t, '*');
+          if (typeof t !== 'string') window.parent.postMessage(JSON.stringify(t), '*');
+        });
+      }
+
+      ping();
       
-      log('Handshakes sent');
+      // Auto-retry pings every 3s
+      const pingInterval = setInterval(ping, 3000);
 
       setTimeout(() => {
+        clearInterval(pingInterval);
         if (cid && !cid.includes('{') && lid && lid !== 'null') {
-           log('Timeout: Using URL', cid);
+           log('Timeout: Using URL-detected ID', cid);
            go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         } else {
-           log('Timeout: Manual Mode');
+           log('Timeout: No automated data, showing form');
            show();
         }
-      }, 10000);
+      }, 12000);
     }
 
     async function go(pay) {
