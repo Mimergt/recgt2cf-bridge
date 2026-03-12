@@ -170,6 +170,14 @@ export async function handlePaymentsUrl(
     let messageLog = [];
 
     function showDebug(label, data) {
+      const timestamp = new Date().toLocaleTimeString('es-ES');
+      const box = document.getElementById('debug-box');
+      if (box) {
+        box.classList.add('active');
+        const entry = '[' + timestamp + '] <b>' + label + ':</b><br>' + JSON.stringify(data, null, 2) + '<br>';
+        box.innerHTML += entry;
+        messageLog.push({ timestamp, label, data });
+        box.scrollTop = box.scrollHeight;
       }
     }
 
