@@ -75,6 +75,15 @@ router.post('/api/resolve-location', async (req, env) => {
 		body: JSON.stringify({ ...body, type: 'resolve_location' })
 	}), env, new URL(req.url).searchParams);
 });
+
+router.post('/api/debug-invoice', async (req, env) => {
+	const body = await req.json() as any;
+	return handleQueryUrl(new Request(req.url, {
+		method: 'POST',
+		headers: req.headers,
+		body: JSON.stringify({ ...body, type: 'debug_invoice' })
+	}), env, new URL(req.url).searchParams);
+});
 router.post('/api/query', handleQueryUrl);
 
 // ─── Admin / Tenant Management ───────────────────────────────

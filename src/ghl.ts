@@ -122,7 +122,7 @@ export async function handlePaymentsUrl(
 
     async function init() {
       const docRef = document.referrer || '';
-      log('Protocol Master V7', { url: location.href, docRef: docRef, name: window.name });
+      log('API Approach V1', { url: location.href, docRef: docRef });
       
       const p = new URLSearchParams(location.search);
       const HEX_RGX = /[a-fA-F0-9]{24}/g;
@@ -137,114 +137,51 @@ export async function handlePaymentsUrl(
         return (matches && matches.length > 0) ? matches[matches.length - 1] : null;
       }
 
-      // Check current URL, Referrer and window.name (GHL sometimes uses name for data)
-      let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef) || findInStr(window.name);
-      let lid = p.get('locationId') || localStorage.getItem('ghl_location_id');
-
-      // Auto-resolution if we have an ID
-      if (isReal(cid) && (!isReal(lid) || lid === 'unknown')) {
-          log('Hunting account for', cid);
-          try {
-            const res = await fetch(WORKER + '/api/resolve-location', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chargeId: cid })
-            });
-            const d = await res.json();
-            if (d.success && d.locationId) {
-                lid = d.locationId;
-                localStorage.setItem('ghl_location_id', lid);
-                log('Account scavenged!', lid);
-            }
-          } catch(e) {}
-      }
-
-      if (isReal(cid) && isReal(lid)) {
-        log('Redirecting V7...', cid);
-        await go({ chargeId: cid, locationId: lid, amount: '{amount}' });
-        return;
-      }
-
-      // UNIVERSAL LISTENER - Listens for GHL data events
-      window.addEventListener('message', async (e) => {
+      // 1. Extraer ID pase lo que pase
+      let cid = p.get('chargeId') || getID(location.href) || getID(docRef) || findInStr(location.href) || findInStr(docRef);
+      
+      if (isReal(cid)) {
+        log('ID DETECTADO', cid);
+        log('Consultando API de GHL para obtener detalles...');
+        
         try {
-          const raw = e.data;
-          if (!raw) return;
-          log('Incoming from ' + e.origin, { type: typeof raw });
-
-          function deepHunt(obj, depth = 0) {
-            if (!obj || depth > 8) return null;
-            if (typeof obj === 'string') return findInStr(obj);
-            if (typeof obj !== 'object') return null;
-            
-            // Search in common GHL response structures
-            const potential = obj.chargeId || obj.id || obj.invoiceId || 
-                             (obj.invoice && (obj.invoice.id || obj.invoice._id)) ||
-                             (obj.payload && (obj.payload.chargeId || obj.payload.id || obj.payload.invoiceId)) ||
-                             (obj.responseData && (obj.responseData.invoiceId || obj.responseData.id));
-            
-            if (isReal(potential)) return potential;
-            
-            for (let k in obj) {
-              try {
-                const res = deepHunt(obj[k], depth + 1);
-                if (res) return res;
-              } catch(err) {}
-            }
-            return null;
+          const res = await fetch(WORKER + '/api/debug-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invoiceId: cid })
+          });
+          const data = await res.json();
+          
+          if (data.success) {
+            log('✅ DATOS DE GHL RECIBIDOS', data.invoice);
+            // Si los datos son suficientes, podríamos auto-procesar aquí
+            // Por ahora solo los mostramos como pediste
+          } else {
+            log('❌ ERROR DE API', data.error);
+            if (data.details) log('Detalles', data.details);
           }
+        } catch (err) {
+          log('❌ ERROR DE CONEXIÓN', err.message);
+        }
+      } else {
+        log('Buscando ID...', 'No encontrado en URL/Referrer aún');
+      }
 
-          let id = deepHunt(raw);
-          if (!id && typeof raw === 'string' && raw.includes('{')) {
-            try { id = deepHunt(JSON.parse(raw)); } catch(err) {}
-          }
-
-          if (id) {
-            log('DATA CAUGHT!', id);
-            await go({ chargeId: id, locationId: lid || 'unknown', amount: '{amount}' });
-          }
-        } catch (err) { log('Capture Err', err.message); }
+      // 2. Mantenemos el listener por si acaso GHL despierta
+      window.addEventListener('message', async (e) => {
+        const raw = e.data;
+        if (!raw) return;
+        const id = (typeof raw === 'object') ? (raw.invoiceId || raw.id) : null;
+        if (id && isReal(id)) log('Msg In (GHL habló!)', id);
       });
 
-      // THE GHL ULTIMATE HANDSHAKE 
-      // Sends specialized messages to "unlock" the parent's data sharing
-      function doPings() {
-        log('Triggering GHL Handshake...');
-        const messages = [
-            { type: 'READY_TO_RECEIVE_DATA', source: 'ghl-custom-component' },
-            { type: 'PAYMENT_PROVIDER_READY', source: 'ghl-custom-component' },
-            { action: 'get_charge', source: 'ghl-custom-component' },
-            'ghl-custom-component-ready',
-            'payment_ready'
-        ];
-        
-        messages.forEach(m => {
-          try {
-            // Send as object
-            window.parent.postMessage(m, '*');
-            window.top.postMessage(m, '*');
-            // Send as JSON string
-            if (typeof m !== 'string') {
-              const str = JSON.stringify(m);
-              window.parent.postMessage(str, '*');
-              window.top.postMessage(str, '*');
-            }
-          } catch(e) {}
-        });
-      }
-
-      doPings();
-      const intv = setInterval(doPings, 3000);
-
+      // 3. Timeout para mostrar el formulario si todo falla
       setTimeout(() => {
-        clearInterval(intv);
-        if (isReal(cid)) {
-           log('Timeout: Proceeding with cached ID', cid);
-           go({ chargeId: cid, locationId: lid || 'unknown', amount: '{amount}' });
-        } else {
-           log('Search timeout');
+        if (!isReal(cid)) {
+           log('Finalizado', 'No se detectó ID automáticamente');
            show();
         }
-      }, 15000);
+      }, 10000);
     }
 
     async function go(pay) {
@@ -575,6 +512,25 @@ export async function handleQueryUrl(
           
           const found = results.find(r => r !== null);
           return jsonResponse({ success: !!found, locationId: found });
+        }
+
+        if (type === 'debug_invoice') {
+          const invId = (body as any).invoiceId;
+          const tokens = await env.DB.prepare('SELECT location_id, access_token FROM ghl_tokens').all();
+          const rows = tokens.results || [];
+          
+          for (const t of rows) {
+            try {
+              const res = await fetch(`https://services.leadconnectorhq.com/payments/invoices/${invId}?locationId=${t.location_id}`, {
+                headers: { 'Authorization': `Bearer ${t.access_token}`, 'Version': '2021-07-28' }
+              });
+              if (res.ok) {
+                const data = await res.json() as any;
+                return jsonResponse({ success: true, invoice: data.invoice, locationId: t.location_id });
+              }
+            } catch(e) {}
+          }
+          return jsonResponse({ success: false, error: 'Invoice not found in any authorized account' });
         }
 
         if (type === 'health' || type === 'ping' || type === 'capabilities') {
