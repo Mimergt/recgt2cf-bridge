@@ -1,5 +1,5 @@
 {
-	"name": "recurrente-bridge",
+	"name": "ghl-recurrente-bridge",
 	"main": "src/index.ts",
 	"compatibility_date": "2024-12-30",
 	"observability": {
