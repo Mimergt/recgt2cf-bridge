@@ -161,51 +161,65 @@ export async function handlePaymentsUrl(
       log('Waiting for msg...');
       if (lid && lid !== 'null') localStorage.setItem('ghl_location_id', lid);
 
-      // Listen for data from parent
+      // Deep search for anything that looks like an ID
+      function deepFind(obj, depth = 0) {
+        if (!obj || depth > 5) return null;
+        if (typeof obj !== 'object') return null;
+        
+        const possible = obj.chargeId || obj.id || obj.invoiceId || (obj.invoice && (obj.invoice.id || obj.invoice._id));
+        if (possible && !String(possible).includes('{')) return possible;
+        
+        for (let k in obj) {
+          try {
+            const res = deepFind(obj[k], depth + 1);
+            if (res) return res;
+          } catch(e) {}
+        }
+        return null;
+      }
+
       window.addEventListener('message', async (e) => {
         const raw = e.data;
         if (!raw) return;
         
-        log('Msg from ' + e.origin, { type: typeof raw, keys: (raw && typeof raw === 'object') ? Object.keys(raw) : 'none' });
-        function extract(o) {
-          if (!o || typeof o !== 'object') return null;
-          const id = o.chargeId || o.id || o.invoiceId || (o.invoice && (o.invoice.id || o.invoice._id)) || (o.payload && o.payload.id);
-          const loc = o.locationId || o.locId || lid;
-          return id && !String(id).includes('{') ? { id, loc, amt: o.amount || o.total } : null;
+        log('Msg In from ' + e.origin, { hasKeys: typeof raw === 'object' ? Object.keys(raw).join(',') : 'no' });
+        
+        // Try to find ID in the payload
+        let foundId = deepFind(raw);
+        if (!foundId && typeof raw === 'string' && raw.includes('{')) {
+          try { foundId = deepFind(JSON.parse(raw)); } catch(err) {}
         }
 
-        let found = extract(raw) || extract(raw.payload) || extract(raw.data);
-        if (!found && typeof raw === 'string' && raw.includes('{')) {
-          try { 
-            const parsed = JSON.parse(raw);
-            found = extract(parsed) || extract(parsed.payload) || extract(parsed.data);
-          } catch(err) {}
-        }
-
-        if (found && found.id) {
-          log('ID caught via MSG!', found.id);
-          await go({ chargeId: found.id, locationId: found.loc || lid, amount: found.amt || '{amount}' });
+        if (foundId) {
+          log('ID Scavenged!', foundId);
+          await go({ chargeId: foundId, locationId: lid || 'unknown', amount: '{amount}' });
         }
       });
 
-      // Send multiple ping formats to trigger GHL data
-      const pings = [{ type: 'REQUEST_PAYMENT_DATA' }, { action: 'get_charge' }, { type: 'PAYMENT_PROVIDER_READY' }, { event: 'ready' }];
-      pings.forEach(msg => {
-        window.parent.postMessage(msg, '*');
-        window.parent.postMessage(JSON.stringify(msg), '*');
+      // GHL Handshakes
+      const pings = [
+        'READY',
+        { action: 'get_charge' },
+        { type: 'READY' },
+        { event: 'payment_ready' },
+        { method: 'get_charge' }
+      ];
+      pings.forEach(p => {
+        window.parent.postMessage(p, '*');
+        if (typeof p !== 'string') window.parent.postMessage(JSON.stringify(p), '*');
       });
       
-      log('Pings sent');
+      log('Handshakes sent');
 
       setTimeout(() => {
         if (cid && !cid.includes('{') && lid && lid !== 'null') {
-           log('Timeout: Proceeding with URL ID', cid);
-           go({ chargeId: cid, locationId: lid, amount: p.get('amount') || '{amount}' });
+           log('Timeout: Using URL', cid);
+           go({ chargeId: cid, locationId: lid, amount: '{amount}' });
         } else {
-           log('Timeout: No clear data found');
+           log('Timeout: Manual Mode');
            show();
         }
-      }, 8000);
+      }, 10000);
     }
 
     async function go(pay) {
