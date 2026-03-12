@@ -288,7 +288,7 @@ export async function handlePaymentsUrl(
                   const candidates = [
                     window.__GHL__, window.parent && window.parent.__GHL__, 
                     window.ghl, window.parent && window.parent.ghl, 
-                    (window as any).responseData, (window.parent as any)?.responseData
+                    window.responseData, window.parent && window.parent.responseData
                   ];
                   for (const c of candidates) {
                     if (!c) continue;
@@ -375,11 +375,9 @@ export async function handlePaymentsUrl(
               try {
                 const tryGlobalInvoice2 = (() => {
                   try {
-                    const cands = [
                       window.__GHL__, window.parent && window.parent.__GHL__, 
                       window.ghl, window.parent && window.parent.ghl,
-                      (window as any).responseData, (window.parent as any)?.responseData
-                    ];
+                      window.responseData, window.parent && window.parent.responseData
                     for (const c of cands) {
                       if (!c) continue;
                       if (c.invoice) return c.invoice;
