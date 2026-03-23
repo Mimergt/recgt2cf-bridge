@@ -114,11 +114,17 @@ export async function checkSubscriptionInWP(
 // ─── 2. Manual activation check (D1) ────────────────────────
 
 export async function checkManualActivation(db: D1Database, locationId: string): Promise<boolean> {
+  try {
     const row = await db
-        .prepare('SELECT id FROM manual_activations WHERE location_id = ? AND is_used = 1 LIMIT 1')
-        .bind(locationId)
-        .first();
+      .prepare('SELECT id FROM manual_activations WHERE location_id = ? AND is_used = 1 LIMIT 1')
+      .bind(locationId)
+      .first();
     return row !== null;
+  } catch (error) {
+    // Keep subscription checks operational even if the optional table has not been migrated yet.
+    console.warn('manual_activations lookup failed, defaulting to false', error);
+    return false;
+  }
 }
 
 // ─── 3. Combined active check ────────────────────────────────
