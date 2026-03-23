@@ -360,51 +360,66 @@ router.get('/', async () => {
 	<title>Nexus Configuración</title>
 	<style>
 		:root {
-			--bg: #eef2f7;
-			--card: #ffffff;
-			--text: #1d2736;
-			--muted: #5f6f86;
-			--line: #dde5f0;
-			--brand: #0b63ce;
-			--brand-dark: #084a9a;
-			--ok: #167d4b;
-			--warn: #ad6b00;
+			--bg: #071738;
+			--card: #1b2d4f;
+			--card-2: #172643;
+			--text: #e9f1ff;
+			--muted: #96abd0;
+			--line: #2d446d;
+			--brand: #34c3ff;
+			--brand-dark: #2aa9df;
+			--ok: #2abf72;
+			--warn: #f0a31b;
 		}
 		* { box-sizing: border-box; }
 		body {
 			margin: 0;
 			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-			background: radial-gradient(1200px 500px at 80% -10%, #d9ebff 0%, transparent 70%), var(--bg);
+			background: radial-gradient(1300px 700px at 50% -20%, #163770 0%, var(--bg) 48%);
 			color: var(--text);
 		}
-		.wrap { max-width: 900px; margin: 24px auto; padding: 0 14px; }
+		.wrap { max-width: 760px; margin: 12px auto; padding: 0 14px; }
+		.logo-box {
+			width: 88px;
+			height: 88px;
+			margin: 8px auto 12px;
+			border-radius: 12px;
+			background: linear-gradient(160deg, #f72585 0%, #ff2f68 100%);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			box-shadow: 0 8px 24px rgba(255, 44, 109, .35);
+			font-weight: 900;
+			font-size: 30px;
+			letter-spacing: .02em;
+		}
 		.card {
-			background: var(--card);
+			background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
 			border: 1px solid var(--line);
 			border-radius: 14px;
-			box-shadow: 0 12px 28px rgba(16, 41, 77, .08);
+			box-shadow: 0 16px 40px rgba(0, 6, 20, .45);
 			overflow: hidden;
 		}
 		.head { padding: 18px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-		.title { margin: 0; font-size: 23px; color: var(--brand); }
+		.title { margin: 0; font-size: 42px; line-height: 1.08; color: var(--brand); letter-spacing: -0.02em; }
 		.sub { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
 		.body { padding: 18px 20px; }
 		.status { padding: 11px 12px; border-radius: 10px; font-size: 14px; margin-bottom: 14px; border: 1px solid; }
-		.status.ok { background: #ebfff4; color: var(--ok); border-color: #bae6ca; }
-		.status.warn { background: #fff8ea; color: var(--warn); border-color: #f7d9a7; }
+		.status.ok { background: rgba(42, 191, 114, .16); color: #9cf0c2; border-color: rgba(108, 229, 162, .45); }
+		.status.warn { background: rgba(240, 163, 27, .16); color: #ffd38a; border-color: rgba(240, 163, 27, .5); }
 		.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 		.field { margin-bottom: 12px; }
-		label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #44556d; text-transform: uppercase; letter-spacing: .04em; }
+		label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #b7caea; text-transform: uppercase; letter-spacing: .06em; }
 		input {
 			width: 100%;
-			border: 1px solid #cfd9e6;
+			border: 1px solid #3c5582;
 			border-radius: 9px;
-			background: #fff;
+			background: #081a3a;
 			padding: 11px 12px;
 			font-size: 14px;
 			color: var(--text);
 		}
-		input:focus { outline: 0; border-color: var(--brand); box-shadow: 0 0 0 2px rgba(11,99,206,.12); }
+		input:focus { outline: 0; border-color: var(--brand); box-shadow: 0 0 0 2px rgba(52,195,255,.18); }
 		.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 		button, a.btn {
 			border: 0;
@@ -415,32 +430,80 @@ router.get('/', async () => {
 			text-decoration: none;
 			cursor: pointer;
 		}
-		.btn-primary { background: var(--brand); color: #fff; }
+		.btn-primary { background: #3368de; color: #fff; }
 		.btn-primary:hover { background: var(--brand-dark); }
-		.btn-soft { background: #e9f1fb; color: var(--brand); }
-		.btn-soft:hover { background: #d6e8fb; }
+		.btn-soft { background: #314a73; color: #9ad5ff; }
+		.btn-soft:hover { background: #365585; }
 		.muted { font-size: 12px; color: var(--muted); margin-top: 7px; }
 		.divider { margin: 18px 0; height: 1px; border: 0; background: var(--line); }
 		.message { min-height: 18px; margin-top: 10px; font-size: 13px; }
-		.msg-ok { color: var(--ok); }
-		.msg-err { color: #ba2c2c; }
+		.msg-ok { color: #8ff0bb; }
+		.msg-err { color: #ff9a9a; }
 		.hidden { display: none; }
 		.pill { padding: 5px 8px; font-size: 12px; border-radius: 20px; font-weight: 700; }
-		.pill.ok { background: #e7f8ef; color: var(--ok); }
-		.pill.warn { background: #fff3dd; color: var(--warn); }
+		.pill.ok { background: rgba(42, 191, 114, .2); color: #9cf0c2; }
+		.pill.warn { background: rgba(240, 163, 27, .2); color: #ffd38a; }
+		.help summary {
+			color: var(--brand);
+			cursor: pointer;
+			font-weight: 700;
+			margin-top: 8px;
+		}
+		.test-box {
+			border: 1px solid rgba(240, 163, 27, .58);
+			border-radius: 12px;
+			padding: 14px;
+			background: rgba(15, 25, 49, .55);
+		}
+		.mode-row {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			margin-top: 12px;
+		}
+		.switch {
+			width: 50px;
+			height: 28px;
+			border-radius: 14px;
+			background: #60728e;
+			position: relative;
+		}
+		.switch::after {
+			content: '';
+			position: absolute;
+			left: 3px;
+			top: 3px;
+			width: 22px;
+			height: 22px;
+			border-radius: 50%;
+			background: #fff;
+		}
+		.tag-test {
+			background: #8a5200;
+			color: #ffd595;
+			border-radius: 8px;
+			padding: 3px 8px;
+			font-size: 12px;
+			font-weight: 800;
+		}
 		@media (max-width: 760px) {
 			.grid { grid-template-columns: 1fr; }
 			.head { flex-direction: column; align-items: flex-start; }
+			.title { font-size: 34px; }
 		}
 	</style>
 </head>
 <body>
 	<div class="wrap">
+		<div class="logo-box">Pay</div>
 		<div class="card">
 			<div class="head">
 				<div>
-					<h1 class="title">Nexus Configuración</h1>
-					<p class="sub">Conecta tu sub-cuenta con Recurrente/EpicPay</p>
+					<h1 class="title">Configuración Recurrente</h1>
+					<details class="help">
+						<summary>Dónde encuentro las llaves?</summary>
+						<p class="sub">En tu cuenta Recurrente, sección de API Keys. Usa llaves de prueba para modo TEST.</p>
+					</details>
 				</div>
 				<div id="sub-status-pill" class="pill warn">Validando...</div>
 			</div>
@@ -469,7 +532,8 @@ router.get('/', async () => {
 
 				<div id="active-panel" class="hidden">
 					<hr class="divider" />
-					<h3 style="margin:0 0 10px;">Llaves de Recurrente</h3>
+					<h3 style="margin:0 0 10px; font-size: 32px;">Llaves de Recurrente</h3>
+					<div class="test-box">
 					<div class="grid">
 						<div class="field">
 							<label>Nombre comercial</label>
@@ -488,8 +552,15 @@ router.get('/', async () => {
 							<input id="secret-key" type="password" placeholder="sk_test_..." />
 						</div>
 					</div>
+					</div>
+					<div class="mode-row">
+						<div class="switch"></div>
+						<div style="font-weight:700;">Modo LIVE</div>
+						<span class="tag-test">TEST</span>
+					</div>
+					<div class="muted">Modo actual: <strong>TEST</strong> - se usan las llaves de prueba.</div>
 					<div class="actions">
-						<button class="btn-primary" id="btn-save-keys">Guardar llaves</button>
+						<button class="btn-primary" id="btn-save-keys">Guardar configuración</button>
 						<button class="btn-soft" id="btn-recheck">Validar suscripción</button>
 					</div>
 					<div class="muted">Las llaves se guardan por sub-cuenta (location_id).</div>
