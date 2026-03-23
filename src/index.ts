@@ -562,7 +562,20 @@ router.get('/', async () => {
 				const data = await res.json();
 				if (data.success && data.tenant) {
 					document.getElementById('business-name').value = data.tenant.business_name || '';
-					setMsg('Ya existe configuración previa para esta sub-cuenta. Puedes actualizar llaves.', true);
+
+					const publicInput = document.getElementById('public-key');
+					const secretInput = document.getElementById('secret-key');
+
+					if (data.tenant.recurrente_public_key) {
+						publicInput.value = data.tenant.recurrente_public_key;
+					}
+
+					if (data.tenant.recurrente_secret_key) {
+						secretInput.value = '';
+						secretInput.placeholder = data.tenant.recurrente_secret_key;
+					}
+
+					setMsg('Ya existe configuración previa para esta sub-cuenta. Las llaves se muestran enmascaradas por seguridad.', true);
 				}
 			} catch (_) {}
 		}
@@ -634,6 +647,7 @@ router.get('/', async () => {
 			if (data.success) {
 				setMsg('Llaves guardadas correctamente.', true);
 				document.getElementById('secret-key').value = '';
+				await loadTenant(locationId);
 			} else {
 				setMsg(data.error || 'No se pudieron guardar las llaves.', false);
 			}
