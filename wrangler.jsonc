@@ -13,4 +13,11 @@
 			"database_id": "c3cab438-4c2c-4941-a8c3-3cc0b3443284"
 		}
 	]
+},
+	// Nexus Subscription Controller env vars (set real values via 'wrangler secret put')
+	"vars": {
+		"WP_SITE_URL": "",
+		"WP_NEXUS_API_KEY": "",
+		"NSC_ADMIN_KEY": ""
+	}
 }

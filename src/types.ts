@@ -2,6 +2,10 @@ export interface Env {
     DB: D1Database;
     GHL_CLIENT_ID: string;
     GHL_CLIENT_SECRET: string;
+    // Nexus Subscription Controller integration
+    WP_SITE_URL?: string;       // e.g. https://mi-tienda.com
+    WP_NEXUS_API_KEY?: string;  // Shared secret with the nexus-sc WP plugin
+    NSC_ADMIN_KEY?: string;     // Key to protect /admin/generate-code and /admin/codes
 }
 
 // ─── Tenant / Multi-tenant ──────────────────────────────────

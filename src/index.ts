@@ -37,6 +37,14 @@ import {
 	handleDeleteTenant,
 } from './admin';
 import { upsertGhlToken } from './db';
+import {
+	handleAppPage,
+	handleActivateCode,
+	handleCheckSubscription,
+	handleTenantStatus,
+	handleGenerateCode,
+	handleListCodes,
+} from './subscription';
 
 const router = new Router();
 
@@ -61,6 +69,15 @@ router.get('/health', async (request, env) => {
 		}, 503);
 	}
 });
+
+// ─── GHL Payment Integration ───────────────────────────────
+// ─── Nexus Subscription Gate ────────────────────────────────
+router.get('/app', handleAppPage);
+router.post('/app/activate-code', handleActivateCode);
+router.get('/api/check-subscription', handleCheckSubscription);
+router.post('/api/tenant-status', handleTenantStatus);
+router.post('/admin/generate-code', handleGenerateCode);
+router.get('/admin/codes', handleListCodes);
 
 // ─── GHL Payment Integration ───────────────────────────────
 router.get('/payment', handlePaymentsUrl);
