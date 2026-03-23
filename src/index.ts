@@ -355,20 +355,305 @@ router.get('/', async () => {
 	const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>EpicPay Config</title>
-  <style>
-    body { font-family: sans-serif; padding: 40px; text-align: center; background: #f0f2f5; color: #1c1e21; }
-    .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: inline-block; }
-    h1 { color: #0080ff; margin-bottom: 10px; }
-  </style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Nexus Configuración</title>
+	<style>
+		:root {
+			--bg: #eef2f7;
+			--card: #ffffff;
+			--text: #1d2736;
+			--muted: #5f6f86;
+			--line: #dde5f0;
+			--brand: #0b63ce;
+			--brand-dark: #084a9a;
+			--ok: #167d4b;
+			--warn: #ad6b00;
+		}
+		* { box-sizing: border-box; }
+		body {
+			margin: 0;
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+			background: radial-gradient(1200px 500px at 80% -10%, #d9ebff 0%, transparent 70%), var(--bg);
+			color: var(--text);
+		}
+		.wrap { max-width: 900px; margin: 24px auto; padding: 0 14px; }
+		.card {
+			background: var(--card);
+			border: 1px solid var(--line);
+			border-radius: 14px;
+			box-shadow: 0 12px 28px rgba(16, 41, 77, .08);
+			overflow: hidden;
+		}
+		.head { padding: 18px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+		.title { margin: 0; font-size: 23px; color: var(--brand); }
+		.sub { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+		.body { padding: 18px 20px; }
+		.status { padding: 11px 12px; border-radius: 10px; font-size: 14px; margin-bottom: 14px; border: 1px solid; }
+		.status.ok { background: #ebfff4; color: var(--ok); border-color: #bae6ca; }
+		.status.warn { background: #fff8ea; color: var(--warn); border-color: #f7d9a7; }
+		.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+		.field { margin-bottom: 12px; }
+		label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #44556d; text-transform: uppercase; letter-spacing: .04em; }
+		input {
+			width: 100%;
+			border: 1px solid #cfd9e6;
+			border-radius: 9px;
+			background: #fff;
+			padding: 11px 12px;
+			font-size: 14px;
+			color: var(--text);
+		}
+		input:focus { outline: 0; border-color: var(--brand); box-shadow: 0 0 0 2px rgba(11,99,206,.12); }
+		.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+		button, a.btn {
+			border: 0;
+			border-radius: 10px;
+			padding: 10px 14px;
+			font-size: 14px;
+			font-weight: 700;
+			text-decoration: none;
+			cursor: pointer;
+		}
+		.btn-primary { background: var(--brand); color: #fff; }
+		.btn-primary:hover { background: var(--brand-dark); }
+		.btn-soft { background: #e9f1fb; color: var(--brand); }
+		.btn-soft:hover { background: #d6e8fb; }
+		.muted { font-size: 12px; color: var(--muted); margin-top: 7px; }
+		.divider { margin: 18px 0; height: 1px; border: 0; background: var(--line); }
+		.message { min-height: 18px; margin-top: 10px; font-size: 13px; }
+		.msg-ok { color: var(--ok); }
+		.msg-err { color: #ba2c2c; }
+		.hidden { display: none; }
+		.pill { padding: 5px 8px; font-size: 12px; border-radius: 20px; font-weight: 700; }
+		.pill.ok { background: #e7f8ef; color: var(--ok); }
+		.pill.warn { background: #fff3dd; color: var(--warn); }
+		@media (max-width: 760px) {
+			.grid { grid-template-columns: 1fr; }
+			.head { flex-direction: column; align-items: flex-start; }
+		}
+	</style>
 </head>
 <body>
-  <div class="card">
-    <h1>EpicPay Bridge Ready</h1>
-    <p>Esta es la página de configuración de tu pasarela Recurrente.</p>
-    <p><small style="color: #65676b;">Versión 0.1.0 • Desarrollado por EPIC.gt</small></p>
-  </div>
+	<div class="wrap">
+		<div class="card">
+			<div class="head">
+				<div>
+					<h1 class="title">Nexus Configuración</h1>
+					<p class="sub">Conecta tu sub-cuenta con Recurrente/EpicPay</p>
+				</div>
+				<div id="sub-status-pill" class="pill warn">Validando...</div>
+			</div>
+
+			<div class="body">
+				<div id="status-box" class="status warn">Verificando suscripción de la sub-cuenta...</div>
+
+				<div class="field">
+					<label>Location ID (GHL)</label>
+					<input id="location-id" type="text" placeholder="Se detecta automáticamente" />
+					<div class="muted">Si no se detecta solo, puedes pegarlo manualmente y presionar "Validar suscripción".</div>
+				</div>
+
+				<div id="inactive-panel" class="hidden">
+					<hr class="divider" />
+					<div class="field">
+						<label>Código/ID de Activación (opcional)</label>
+						<input id="activation-code" type="text" placeholder="Ingresa tu código y luego valida" />
+					</div>
+					<div class="actions">
+						<button class="btn-primary" id="btn-activate">Guardar y validar</button>
+						<a id="buy-sub-link" class="btn-soft" href="#" target="_top">Comprar/Reactivar suscripción</a>
+					</div>
+					<div class="muted">Si ya compraste o reactivaste, presiona "Validar suscripción" para habilitar esta pantalla.</div>
+				</div>
+
+				<div id="active-panel" class="hidden">
+					<hr class="divider" />
+					<h3 style="margin:0 0 10px;">Llaves de Recurrente</h3>
+					<div class="grid">
+						<div class="field">
+							<label>Nombre comercial</label>
+							<input id="business-name" type="text" placeholder="Ej: Nexus" />
+						</div>
+						<div class="field">
+							<label>Modo</label>
+							<input value="test" disabled />
+						</div>
+						<div class="field">
+							<label>Public Key (test)</label>
+							<input id="public-key" type="text" placeholder="pk_test_..." />
+						</div>
+						<div class="field">
+							<label>Secret Key (test)</label>
+							<input id="secret-key" type="password" placeholder="sk_test_..." />
+						</div>
+					</div>
+					<div class="actions">
+						<button class="btn-primary" id="btn-save-keys">Guardar llaves</button>
+						<button class="btn-soft" id="btn-recheck">Validar suscripción</button>
+					</div>
+					<div class="muted">Las llaves se guardan por sub-cuenta (location_id).</div>
+				</div>
+
+				<div id="message" class="message"></div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		const WORKER = window.location.origin;
+		const WP_STORE = 'https://pagos.epic.gt';
+
+		function setMsg(msg, ok) {
+			const el = document.getElementById('message');
+			el.textContent = msg || '';
+			el.className = 'message ' + (msg ? (ok ? 'msg-ok' : 'msg-err') : '');
+		}
+
+		function setStatus(active, text) {
+			const box = document.getElementById('status-box');
+			const pill = document.getElementById('sub-status-pill');
+			if (active) {
+				box.className = 'status ok';
+				pill.className = 'pill ok';
+				pill.textContent = 'Suscripción activa';
+			} else {
+				box.className = 'status warn';
+				pill.className = 'pill warn';
+				pill.textContent = 'Suscripción inactiva';
+			}
+			box.textContent = text;
+		}
+
+		function detectLocationId() {
+			const q = new URLSearchParams(window.location.search);
+			const fromQuery = q.get('locationId') || q.get('location_id');
+			if (fromQuery) return fromQuery;
+
+			const fromStorage = localStorage.getItem('ghl_location_id');
+			if (fromStorage) return fromStorage;
+
+			const ref = document.referrer || '';
+			const m = ref.match(/\/location\/([a-zA-Z0-9_-]{5,60})\//);
+			if (m && m[1]) return m[1];
+
+			return '';
+		}
+
+		async function checkSubscription(locationId) {
+			const res = await fetch(WORKER + '/api/check-subscription?locationId=' + encodeURIComponent(locationId));
+			return res.json();
+		}
+
+		async function loadTenant(locationId) {
+			try {
+				const res = await fetch(WORKER + '/admin/tenant?locationId=' + encodeURIComponent(locationId));
+				const data = await res.json();
+				if (data.success && data.tenant) {
+					document.getElementById('business-name').value = data.tenant.business_name || '';
+					setMsg('Ya existe configuración previa para esta sub-cuenta. Puedes actualizar llaves.', true);
+				}
+			} catch (_) {}
+		}
+
+		function syncBuyLink(locationId) {
+			const link = document.getElementById('buy-sub-link');
+			link.href = WP_STORE + '/checkout/?account_id=' + encodeURIComponent(locationId) + '&open-subscription=1';
+		}
+
+		async function renderByStatus(locationId) {
+			const result = await checkSubscription(locationId);
+			const active = !!(result && result.success && result.active);
+
+			if (active) {
+				setStatus(true, 'Tu sub-cuenta tiene suscripción activa. Ya puedes configurar llaves.');
+				document.getElementById('inactive-panel').classList.add('hidden');
+				document.getElementById('active-panel').classList.remove('hidden');
+				await loadTenant(locationId);
+			} else {
+				setStatus(false, 'No encontramos suscripción activa para esta sub-cuenta.');
+				document.getElementById('active-panel').classList.add('hidden');
+				document.getElementById('inactive-panel').classList.remove('hidden');
+			}
+		}
+
+		async function activateAndValidate() {
+			const locationId = document.getElementById('location-id').value.trim();
+			const code = document.getElementById('activation-code').value.trim();
+			if (!locationId) {
+				setMsg('Falta location ID.', false);
+				return;
+			}
+
+			if (code) {
+				const res = await fetch(WORKER + '/app/activate-code', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ code, locationId }),
+				});
+				const data = await res.json();
+				if (!data.success) {
+					setMsg(data.error || 'No se pudo activar el código.', false);
+					return;
+				}
+				setMsg('Código activado. Verificando suscripción...', true);
+			}
+
+			await renderByStatus(locationId);
+		}
+
+		async function saveKeys() {
+			const locationId = document.getElementById('location-id').value.trim();
+			const businessName = document.getElementById('business-name').value.trim();
+			const publicKey = document.getElementById('public-key').value.trim();
+			const secretKey = document.getElementById('secret-key').value.trim();
+
+			if (!locationId || !publicKey || !secretKey) {
+				setMsg('Completa location ID, public key y secret key.', false);
+				return;
+			}
+
+			const res = await fetch(WORKER + '/admin/tenant', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ locationId, businessName, publicKey, secretKey }),
+			});
+			const data = await res.json();
+
+			if (data.success) {
+				setMsg('Llaves guardadas correctamente.', true);
+				document.getElementById('secret-key').value = '';
+			} else {
+				setMsg(data.error || 'No se pudieron guardar las llaves.', false);
+			}
+		}
+
+		async function init() {
+			const locationId = detectLocationId();
+			const input = document.getElementById('location-id');
+			input.value = locationId;
+
+			if (!locationId) {
+				setStatus(false, 'No pudimos detectar automáticamente tu location ID. Pégalo manualmente para continuar.');
+				document.getElementById('inactive-panel').classList.remove('hidden');
+				return;
+			}
+
+			localStorage.setItem('ghl_location_id', locationId);
+			syncBuyLink(locationId);
+			await renderByStatus(locationId);
+		}
+
+		document.getElementById('btn-activate').addEventListener('click', activateAndValidate);
+		document.getElementById('btn-save-keys').addEventListener('click', saveKeys);
+		document.getElementById('btn-recheck').addEventListener('click', async () => {
+			const locationId = document.getElementById('location-id').value.trim();
+			if (!locationId) return setMsg('Falta location ID.', false);
+			await renderByStatus(locationId);
+		});
+
+		init().catch((e) => setMsg('Error inicializando configuración: ' + (e.message || e), false));
+	</script>
 </body>
 </html>`;
 
