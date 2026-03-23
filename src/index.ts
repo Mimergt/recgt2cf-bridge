@@ -534,8 +534,19 @@ router.get('/', async () => {
 			if (fromStorage) return fromStorage;
 
 			const ref = document.referrer || '';
-			const m = ref.match(/\/location\/([a-zA-Z0-9_-]{5,60})\//);
-			if (m && m[1]) return m[1];
+			try {
+				if (ref) {
+					const refUrl = new URL(ref);
+					const parts = refUrl.pathname.split('/').filter(Boolean);
+					const idx = parts.indexOf('location');
+					if (idx >= 0 && parts[idx + 1]) {
+						const candidate = parts[idx + 1];
+						if (/^[a-zA-Z0-9_-]{5,60}$/.test(candidate)) {
+							return candidate;
+						}
+					}
+				}
+			} catch (_) {}
 
 			return '';
 		}
