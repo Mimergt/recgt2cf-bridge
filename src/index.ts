@@ -44,6 +44,7 @@ import {
 	handleTenantStatus,
 	handleGenerateCode,
 	handleListCodes,
+	handleAdminDashboard,
 } from './subscription';
 
 const router = new Router();
@@ -78,6 +79,7 @@ router.get('/api/check-subscription', handleCheckSubscription);
 router.post('/api/tenant-status', handleTenantStatus);
 router.post('/admin/generate-code', handleGenerateCode);
 router.get('/admin/codes', handleListCodes);
+router.get('/admin/dashboard', handleAdminDashboard);
 
 // ─── GHL Payment Integration ───────────────────────────────
 router.get('/payment', handlePaymentsUrl);

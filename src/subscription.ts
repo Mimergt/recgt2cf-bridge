@@ -42,13 +42,17 @@ function generateRandomCode(byteLength = 16): string {
 // ─── Auth helpers ───────────────────────────────────────────
 
 function verifyNscAdminKey(request: Request, env: Env): boolean {
-    const adminKey = env.NSC_ADMIN_KEY || '';
-    if (!adminKey) return false; // key not configured → deny
-    const provided =
+  const provided =
         request.headers.get('x-nsc-admin-key') ||
+    request.headers.get('x-admin-key') ||
         new URL(request.url).searchParams.get('admin_key') ||
+    new URL(request.url).searchParams.get('adminKey') ||
         '';
-    return adminKey.length > 0 && provided.length > 0 && adminKey === provided;
+
+  const acceptedKeys = [env.NSC_ADMIN_KEY || '', env.ADMIN_SECRET || ''].filter(Boolean);
+  if (acceptedKeys.length === 0 || !provided) return false;
+
+  return acceptedKeys.some((key) => key === provided);
 }
 
 function verifyNscApiKey(request: Request, env: Env): boolean {
@@ -561,4 +565,101 @@ export async function handleListCodes(request: Request, env: Env): Promise<Respo
     } catch (err) {
         return jsonResponse({ success: false, error: err instanceof Error ? err.message : String(err) }, 500);
     }
+}
+
+// ─── 13. GET /admin/dashboard ───────────────────────────────
+
+export async function handleAdminDashboard(request: Request, env: Env): Promise<Response> {
+    if (!verifyNscAdminKey(request, env)) {
+        return new Response(
+            '<h1>403 Unauthorized</h1><p>Incluye adminKey o admin_key correcto en la URL.</p>',
+            { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
+    }
+
+    const params = new URL(request.url).searchParams;
+    const adminKey = params.get('adminKey') || params.get('admin_key') || '';
+
+    const tenantsRes = await env.DB
+        .prepare(`
+            SELECT id, location_id, business_name, is_active, created_at, updated_at
+            FROM tenants
+            ORDER BY updated_at DESC
+        `)
+        .all();
+
+    const tenants = (tenantsRes.results || []) as Array<{
+        id: number;
+        location_id: string;
+        business_name: string;
+        is_active: number;
+        created_at: string;
+        updated_at: string;
+    }>;
+
+    const rows = tenants.map((t) => `
+      <tr>
+        <td>${t.id}</td>
+        <td><code>${t.location_id}</code></td>
+        <td>${t.business_name || '-'}</td>
+        <td>${t.is_active ? '<span class="ok">active</span>' : '<span class="off">inactive</span>'}</td>
+        <td>${t.updated_at || '-'}</td>
+      </tr>
+    `).join('');
+
+    const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EPICPay Admin Dashboard</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; background: #f5f7fb; margin: 0; color: #1e2430; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    .card { background: white; border: 1px solid #e8edf5; border-radius: 12px; box-shadow: 0 8px 24px rgba(18,28,45,.06); overflow: hidden; }
+    .head { padding: 16px 20px; border-bottom: 1px solid #eef2f7; display:flex; justify-content:space-between; align-items:center; }
+    h1 { margin: 0; font-size: 20px; }
+    .meta { font-size: 13px; color: #627086; }
+    .links a { margin-left: 10px; color: #0b63ce; text-decoration: none; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eef2f7; }
+    th { color: #546176; font-weight: 600; background: #fbfcfe; }
+    code { font-size: 12px; background: #f2f6fc; padding: 2px 6px; border-radius: 6px; }
+    .ok { color: #0f7b3e; font-weight: 600; }
+    .off { color: #8a94a6; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="head">
+        <div>
+          <h1>Sub-cuentas configuradas</h1>
+          <div class="meta">Total: ${tenants.length}</div>
+        </div>
+        <div class="links">
+          <a href="/admin/tenants">JSON tenants</a>
+          <a href="/admin/codes?admin_key=${encodeURIComponent(adminKey)}">Códigos</a>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Location ID</th>
+            <th>Business</th>
+            <th>Estado</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="5">No hay sub-cuentas configuradas.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
