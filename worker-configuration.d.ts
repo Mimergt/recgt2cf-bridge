@@ -2,5 +2,6 @@
 // This declares the global Env interface that Cloudflare Workers expects
 
 interface Env {
+	ADMIN_SECRET: string;
     DB: D1Database;
 }

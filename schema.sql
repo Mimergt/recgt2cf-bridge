@@ -55,17 +55,3 @@ CREATE TABLE IF NOT EXISTS bridge_settings (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
-
--- Manual activation codes (for gifted/comped accounts that don't buy via WooCommerce)
-CREATE TABLE IF NOT EXISTS manual_activations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT NOT NULL UNIQUE,                  -- Activation code (random, URL-safe)
-    location_id TEXT,                           -- GHL locationId (filled when code is redeemed)
-    is_used INTEGER DEFAULT 0,                  -- 0 = available, 1 = redeemed
-    notes TEXT DEFAULT '',                      -- Admin notes (e.g. customer name, reason)
-    created_at TEXT DEFAULT (datetime('now')),
-    used_at TEXT                                -- Timestamp when redeemed
-);
-
-CREATE INDEX IF NOT EXISTS idx_manual_activations_code ON manual_activations(code);
-CREATE INDEX IF NOT EXISTS idx_manual_activations_location ON manual_activations(location_id);

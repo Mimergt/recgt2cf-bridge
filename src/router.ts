@@ -1,6 +1,6 @@
 import type { Env } from './types';
 
-type RouteHandler = (request: Request, env: Env, params: URLSearchParams) => Promise<Response>;
+type RouteHandler = (request: Request, env: Env, params: URLSearchParams, ctx?: ExecutionContext) => Promise<Response>;
 
 interface Route {
     method: string;
@@ -35,7 +35,7 @@ export class Router {
         return this;
     }
 
-    async handle(request: Request, env: Env): Promise<Response> {
+    async handle(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
         const url = new URL(request.url);
         const method = request.method;
         const pathname = url.pathname;
@@ -48,7 +48,7 @@ export class Router {
         for (const route of this.routes) {
             if (route.method === method && pathname === route.pattern) {
                 try {
-                    const response = await route.handler(request, env, url.searchParams);
+                    const response = await route.handler(request, env, url.searchParams, ctx);
                     return addCorsHeaders(response);
                 } catch (error) {
                     console.error(`Error in ${method} ${pathname}:`, error);

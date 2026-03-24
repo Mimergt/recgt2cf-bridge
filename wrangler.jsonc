@@ -6,6 +6,10 @@
 	"observability": {
 		"enabled": true
 	},
+	// Cron: retry pending GHL record-payment calls every minute
+	"triggers": {
+		"crons": ["*/1 * * * *"]
+	},
 	// D1 database binding for storing tenant configurations
 	"d1_databases": [
 		{
@@ -13,10 +17,5 @@
 			"database_name": "ghl-recurrente-db",
 			"database_id": "c3cab438-4c2c-4941-a8c3-3cc0b3443284"
 		}
-	],
-	"vars": {
-		"WP_SITE_URL": "https://pagos.epic.gt",
-		"WP_NEXUS_API_KEY": "48Rg-E2Q3E7EWJntFZu6HB89ktwV1J0HzQXV6fN2nGcZME6_V01SAe5SqRseOUf7",
-		"NSC_ADMIN_KEY": "9527h5u_m7I0uiiQgnzAaZp9y_KL7vFPEn-bDRXMtXLH_bC7cIM16OvSZ4UPQvt7"
-	}
+	]
 }

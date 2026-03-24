@@ -51,7 +51,7 @@ export async function createCheckout(
         items: [
             {
                 name: params.product_name,
-                currency: params.currency || 'GTQ',
+                currency: 'GTQ',
                 amount_in_cents: params.amount_in_cents,
                 quantity: 1,
             },

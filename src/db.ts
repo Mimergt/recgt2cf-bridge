@@ -15,27 +15,91 @@ export async function getTenant(db: D1Database, locationId: string): Promise<Ten
 export async function upsertTenant(
     db: D1Database,
     locationId: string,
-    publicKey: string,
-    secretKey: string,
-    businessName: string = ''
+    data: {
+        publicKey?: string;
+        secretKey?: string;
+        publicKeyLive?: string;
+        secretKeyLive?: string;
+        mode?: 'test' | 'live';
+        businessName?: string;
+    }
 ): Promise<void> {
-    await db
-        .prepare(
-            `INSERT INTO tenants (location_id, recurrente_public_key, recurrente_secret_key, business_name)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(location_id) DO UPDATE SET
-         recurrente_public_key = excluded.recurrente_public_key,
-         recurrente_secret_key = excluded.recurrente_secret_key,
-         business_name = excluded.business_name,
-         updated_at = datetime('now')`
-        )
-        .bind(locationId, publicKey, secretKey, businessName)
-        .run();
+    // Ensure new columns exist (safe to run each time)
+    const migrations = [
+        "ALTER TABLE tenants ADD COLUMN recurrente_public_key_live TEXT DEFAULT ''",
+        "ALTER TABLE tenants ADD COLUMN recurrente_secret_key_live TEXT DEFAULT ''",
+        "ALTER TABLE tenants ADD COLUMN mode TEXT DEFAULT 'test'",
+    ];
+    for (const sql of migrations) {
+        try { await db.prepare(sql).run(); } catch {}
+    }
+
+    // Check if tenant already exists
+    const existing = await db.prepare('SELECT * FROM tenants WHERE location_id = ?').bind(locationId).first<Tenant>();
+
+    if (existing) {
+        // Only update fields that were actually provided
+        const sets: string[] = [];
+        const vals: any[] = [];
+        if (data.publicKey !== undefined) { sets.push('recurrente_public_key = ?'); vals.push(data.publicKey); }
+        if (data.secretKey !== undefined) { sets.push('recurrente_secret_key = ?'); vals.push(data.secretKey); }
+        if (data.publicKeyLive !== undefined) { sets.push('recurrente_public_key_live = ?'); vals.push(data.publicKeyLive); }
+        if (data.secretKeyLive !== undefined) { sets.push('recurrente_secret_key_live = ?'); vals.push(data.secretKeyLive); }
+        if (data.mode !== undefined) { sets.push('mode = ?'); vals.push(data.mode); }
+        if (data.businessName !== undefined) { sets.push('business_name = ?'); vals.push(data.businessName); }
+        if (sets.length === 0) return;
+        sets.push("updated_at = datetime('now')");
+        vals.push(locationId);
+        await db.prepare(`UPDATE tenants SET ${sets.join(', ')} WHERE location_id = ?`).bind(...vals).run();
+    } else {
+        await db
+            .prepare(
+                `INSERT INTO tenants (location_id, recurrente_public_key, recurrente_secret_key, recurrente_public_key_live, recurrente_secret_key_live, mode, business_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+                locationId,
+                data.publicKey || '',
+                data.secretKey || '',
+                data.publicKeyLive || '',
+                data.secretKeyLive || '',
+                data.mode || 'test',
+                data.businessName || ''
+            )
+            .run();
+    }
+}
+
+/** Get the active Recurrente keys for a tenant (based on mode) */
+export function getActiveKeys(tenant: Tenant): { publicKey: string; secretKey: string } {
+    if (tenant.mode === 'live' && tenant.recurrente_public_key_live && tenant.recurrente_secret_key_live) {
+        return { publicKey: tenant.recurrente_public_key_live, secretKey: tenant.recurrente_secret_key_live };
+    }
+    return { publicKey: tenant.recurrente_public_key, secretKey: tenant.recurrente_secret_key };
 }
 
 /** List all tenants */
 export async function listTenants(db: D1Database): Promise<Tenant[]> {
     const { results } = await db.prepare('SELECT * FROM tenants ORDER BY created_at DESC').all<Tenant>();
+    return results;
+}
+
+/** Toggle tenant is_active flag */
+export async function toggleTenant(db: D1Database, locationId: string, active: boolean): Promise<void> {
+    await db.prepare('UPDATE tenants SET is_active = ?, updated_at = datetime(\'now\') WHERE location_id = ?')
+        .bind(active ? 1 : 0, locationId).run();
+}
+
+/** List all tenants with their GHL token status */
+export async function listTenantsWithTokens(db: D1Database): Promise<any[]> {
+    const { results } = await db.prepare(`
+        SELECT t.*, 
+            gt.access_token IS NOT NULL as has_token,
+            gt.expires_at as token_expires_at
+        FROM tenants t
+        LEFT JOIN ghl_tokens gt ON t.location_id = gt.location_id
+        ORDER BY t.created_at DESC
+    `).all();
     return results;
 }
 
@@ -116,9 +180,17 @@ export async function getTransactionByChargeId(
     chargeId: string
 ): Promise<Transaction | null> {
     return db
-        .prepare('SELECT * FROM transactions WHERE ghl_charge_id = ?')
+        .prepare('SELECT * FROM transactions WHERE ghl_charge_id = ? ORDER BY id DESC LIMIT 1')
         .bind(chargeId)
         .first<Transaction>();
+}
+
+/** Get all transactions pending a GHL record-payment retry (via cron) */
+export async function getGhlPendingTransactions(db: D1Database): Promise<Transaction[]> {
+    const { results } = await db
+        .prepare(`SELECT * FROM transactions WHERE status = 'ghl_pending' AND updated_at > datetime('now', '-2 hours') ORDER BY updated_at ASC LIMIT 20`)
+        .all<Transaction>();
+    return results;
 }
 
 /** Get transaction by Recurrente checkout ID */
@@ -178,6 +250,106 @@ export async function getGhlToken(db: D1Database, locationId: string) {
         .prepare('SELECT * FROM ghl_tokens WHERE location_id = ?')
         .bind(locationId)
         .first();
+}
+
+/**
+ * Get a valid (non-expired) GHL access token, refreshing automatically if needed.
+ * Returns the token row with a guaranteed-fresh access_token, or null if refresh fails.
+ */
+export async function getValidGhlToken(
+    db: D1Database,
+    locationId: string,
+    clientId: string,
+    clientSecret: string
+): Promise<{ access_token: string; refresh_token: string | null; location_id: string } | null> {
+    const row = await getGhlToken(db, locationId) as any;
+    if (!row) return null;
+
+    // Check if token is expired or expiring within 10 minutes
+    if (row.expires_at) {
+        const expiresAt = new Date(row.expires_at).getTime();
+        const buffer = 10 * 60 * 1000; // 10 minutes
+        if (Date.now() + buffer >= expiresAt) {
+            console.log('[TokenRefresh] Token expiring soon for', locationId, '- refreshing');
+            const refreshed = await refreshGhlToken(db, locationId, row.refresh_token, clientId, clientSecret);
+            if (refreshed) return refreshed;
+            // Refresh failed — return existing token as last resort (may still work briefly)
+            console.error('[TokenRefresh] Refresh failed, using existing token for', locationId);
+        }
+    }
+
+    return { access_token: row.access_token, refresh_token: row.refresh_token, location_id: row.location_id };
+}
+
+/**
+ * Refresh a GHL OAuth token using the refresh_token grant.
+ * On success, updates D1 and returns the new token row.
+ */
+export async function refreshGhlToken(
+    db: D1Database,
+    locationId: string,
+    refreshToken: string | null,
+    clientId: string,
+    clientSecret: string
+): Promise<{ access_token: string; refresh_token: string | null; location_id: string } | null> {
+    if (!refreshToken) {
+        console.error('[TokenRefresh] No refresh_token for', locationId);
+        return null;
+    }
+
+    try {
+        const body = new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+            user_type: 'Location',
+        });
+
+        const res = await fetch('https://services.leadconnectorhq.com/oauth/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+            },
+            body: body.toString(),
+        });
+
+        if (!res.ok) {
+            const errText = await res.text();
+            console.error('[TokenRefresh] GHL returned', res.status, 'for', locationId, ':', errText);
+            return null;
+        }
+
+        const data = await res.json() as any;
+        const newAccessToken = data.access_token;
+        const newRefreshToken = data.refresh_token || refreshToken;
+        const expiresIn = data.expires_in; // seconds
+        const expiresAt = expiresIn
+            ? new Date(Date.now() + expiresIn * 1000).toISOString()
+            : null;
+
+        console.log('[TokenRefresh] Success for', locationId, '- expires_in:', expiresIn, 's');
+
+        await upsertGhlToken(db, locationId, newAccessToken, newRefreshToken, data.scope || null, expiresAt);
+
+        return { access_token: newAccessToken, refresh_token: newRefreshToken, location_id: locationId };
+    } catch (e) {
+        console.error('[TokenRefresh] Error for', locationId, ':', e);
+        return null;
+    }
+}
+
+/**
+ * Get all tokens that are expiring within the given number of minutes.
+ * Used by the cron job to proactively refresh tokens.
+ */
+export async function getExpiringTokens(db: D1Database, withinMinutes: number) {
+    const cutoff = new Date(Date.now() + withinMinutes * 60 * 1000).toISOString();
+    return db
+        .prepare('SELECT * FROM ghl_tokens WHERE refresh_token IS NOT NULL AND (expires_at IS NULL OR expires_at <= ?)')
+        .bind(cutoff)
+        .all();
 }
 
 // ─── Simple Key/Value Settings ──────────────────────────────

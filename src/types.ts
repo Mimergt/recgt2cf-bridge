@@ -2,11 +2,7 @@ export interface Env {
     DB: D1Database;
     GHL_CLIENT_ID: string;
     GHL_CLIENT_SECRET: string;
-    ADMIN_SECRET?: string;      // Legacy admin key used by old dashboard links
-    // Nexus Subscription Controller integration
-    WP_SITE_URL?: string;       // e.g. https://mi-tienda.com
-    WP_NEXUS_API_KEY?: string;  // Shared secret with the nexus-sc WP plugin
-    NSC_ADMIN_KEY?: string;     // Key to protect /admin/generate-code and /admin/codes
+    ADMIN_SECRET: string;
 }
 
 // ─── Tenant / Multi-tenant ──────────────────────────────────
@@ -15,6 +11,9 @@ export interface Tenant {
     location_id: string;
     recurrente_public_key: string;
     recurrente_secret_key: string;
+    recurrente_public_key_live: string;
+    recurrente_secret_key_live: string;
+    mode: 'test' | 'live';
     business_name: string;
     is_active: number;
     created_at: string;
