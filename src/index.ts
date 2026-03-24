@@ -59,14 +59,10 @@ const DEFAULT_SUBSCRIPTION_PRODUCT_ID = '304';
 
 function buildSubscriptionBuyUrl(env: Env, locationId: string): string {
 	const checkoutBase = env.SUBSCRIPTION_PRODUCT_URL || DEFAULT_SUBSCRIPTION_PRODUCT_URL;
-	const checkoutUrl = new URL(checkoutBase);
-	const siteOrigin = new URL((env.WP_SITE_URL || checkoutBase)).origin;
-	const url = new URL('/', siteOrigin);
+	const url = new URL(checkoutBase);
 	const productId = env.SUBSCRIPTION_PRODUCT_ID || DEFAULT_SUBSCRIPTION_PRODUCT_ID;
 	url.searchParams.set('add-to-cart', productId);
 	url.searchParams.set('account_id', locationId);
-	checkoutUrl.searchParams.set('account_id', locationId);
-	url.searchParams.set('redirect_to', checkoutUrl.toString());
 	return url.toString();
 }
 
