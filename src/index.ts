@@ -54,6 +54,103 @@ function requireAdmin(request: Request, env: Env): Response | null {
 	return null; // authorized
 }
 
+const DEFAULT_SUBSCRIPTION_PRODUCT_URL = 'https://pagos.epic.gt/p/epicpay-nexus/?v=1bfad22f0925';
+const DEFAULT_SUBSCRIPTION_PRODUCT_ID = '304';
+
+function buildSubscriptionBuyUrl(env: Env, locationId: string): string {
+	const base = env.SUBSCRIPTION_PRODUCT_URL || DEFAULT_SUBSCRIPTION_PRODUCT_URL;
+	const url = new URL(base);
+	if (!url.searchParams.get('product_id')) {
+		url.searchParams.set('product_id', env.SUBSCRIPTION_PRODUCT_ID || DEFAULT_SUBSCRIPTION_PRODUCT_ID);
+	}
+	url.searchParams.set('account_id', locationId);
+	return url.toString();
+}
+
+async function ensureTenantActive(env: Env, locationId: string): Promise<void> {
+	await env.DB.prepare(`
+		INSERT INTO tenants (location_id, recurrente_public_key, recurrente_secret_key, business_name, is_active)
+		VALUES (?, '', '', '', 1)
+		ON CONFLICT(location_id) DO UPDATE SET
+			is_active = 1,
+			updated_at = datetime('now')
+	`).bind(locationId).run();
+}
+
+async function tryApplyManualActivationCode(env: Env, locationId: string, code: string): Promise<boolean> {
+	if (!code) return false;
+	try {
+		const row = await env.DB.prepare('SELECT id, is_used, location_id FROM manual_activations WHERE code = ? LIMIT 1')
+			.bind(code)
+			.first<{ id: number; is_used: number; location_id: string | null }>();
+		if (!row) return false;
+		if (row.is_used === 1 && row.location_id && row.location_id !== locationId) return false;
+
+		await env.DB.prepare(`
+			UPDATE manual_activations
+			SET is_used = 1, location_id = ?, used_at = datetime('now')
+			WHERE id = ?
+		`).bind(locationId, row.id).run();
+
+		await ensureTenantActive(env, locationId);
+		return true;
+	} catch {
+		// Table may not exist in all environments; ignore gracefully.
+		return false;
+	}
+}
+
+async function checkSubscriptionStatus(env: Env, locationId: string, subscriptionCode?: string) {
+	const buyUrl = buildSubscriptionBuyUrl(env, locationId);
+
+	const tenantRow = await env.DB.prepare('SELECT is_active FROM tenants WHERE location_id = ? LIMIT 1')
+		.bind(locationId)
+		.first<{ is_active: number }>();
+	const tenantActive = tenantRow?.is_active === 1;
+
+	if (subscriptionCode) {
+		const activated = await tryApplyManualActivationCode(env, locationId, subscriptionCode);
+		if (activated) {
+			return { active: true, source: 'manual_code', buyUrl };
+		}
+	}
+
+	const wpSite = (env.WP_SITE_URL || 'https://pagos.epic.gt').replace(/\/+$/, '');
+	const wpKey = env.WP_NEXUS_API_KEY || '';
+	if (!wpKey) {
+		if (tenantActive) return { active: true, source: 'tenant_active', buyUrl };
+		return { active: false, source: 'inactive', buyUrl, message: 'Falta WP_NEXUS_API_KEY en el entorno del Worker.' };
+	}
+
+	try {
+		const wpUrl = new URL('/wp-json/nexus-sc/v1/check-subscription', wpSite);
+		wpUrl.searchParams.set('location_id', locationId);
+		wpUrl.searchParams.set('key', wpKey);
+		if (subscriptionCode) {
+			wpUrl.searchParams.set('subscription_id', subscriptionCode);
+			wpUrl.searchParams.set('code', subscriptionCode);
+		}
+
+		const resp = await fetch(wpUrl.toString(), { method: 'GET' });
+		if (!resp.ok) {
+			if (tenantActive) return { active: true, source: 'tenant_active', buyUrl };
+			return { active: false, source: 'inactive', buyUrl, message: `No se pudo validar con WooCommerce (${resp.status}).` };
+		}
+
+		const data = await resp.json() as any;
+		const active = !!(data?.active || data?.is_active || data?.has_active_subscription);
+		if (active) {
+			await ensureTenantActive(env, locationId);
+			return { active: true, source: 'woocommerce', buyUrl };
+		}
+
+		return { active: false, source: 'inactive', buyUrl, message: 'No encontramos una suscripción activa para esta sub-cuenta.' };
+	} catch {
+		if (tenantActive) return { active: true, source: 'tenant_active', buyUrl };
+		return { active: false, source: 'inactive', buyUrl, message: 'Error de conexión validando suscripción.' };
+	}
+}
+
 // ─── Health Check ───────────────────────────────────────────
 router.get('/health', async (request, env) => {
 	// Quick DB connectivity test
@@ -101,6 +198,29 @@ router.post('/api/debug-invoice', async (req, env) => {
 	}), env, new URL(req.url).searchParams);
 });
 router.post('/api/query', handleQueryUrl);
+
+router.get('/api/check-subscription', async (request, env) => {
+	const params = new URL(request.url).searchParams;
+	const locationId = (params.get('locationId') || params.get('location_id') || '').trim();
+	if (!locationId) {
+		return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+	}
+
+	const status = await checkSubscriptionStatus(env, locationId);
+	return jsonResponse({ success: true, ...status });
+});
+
+router.post('/api/activate-subscription', async (request, env) => {
+	const body = await request.json() as any;
+	const locationId = (body.locationId || '').trim();
+	const subscriptionCode = (body.subscriptionCode || body.subscriptionId || '').trim();
+	if (!locationId) {
+		return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+	}
+
+	const status = await checkSubscriptionStatus(env, locationId, subscriptionCode);
+	return jsonResponse({ success: true, ...status });
+});
 
 // ─── Static Assets ──────────────────────────────────────────
 const ICON_SVG_B64 = 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iQ2FwYV8yIiBkYXRhLW5hbWU9IkNhcGEgMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmlld0JveD0iMCAwIDE5MC4wNyAxOTIuNjEiPgogIDxkZWZzPgogICAgPHN0eWxlPgogICAgICAuY2xzLTEgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTUpOwogICAgICB9CgogICAgICAuY2xzLTIgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTYpOwogICAgICB9CgogICAgICAuY2xzLTMgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTQpOwogICAgICB9CgogICAgICAuY2xzLTQgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTMpOwogICAgICB9CgogICAgICAuY2xzLTUgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTIpOwogICAgICB9CgogICAgICAuY2xzLTYgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50KTsKICAgICAgfQoKICAgICAgLmNscy03IHsKICAgICAgICBmaWxsOiAjMmEyMDJiOwogICAgICB9CgogICAgICAuY2xzLTgsIC5jbHMtOSB7CiAgICAgICAgZmlsbDogIzJhMjAyYjsKICAgICAgfQoKICAgICAgLmNscy0xMCB7CiAgICAgICAgZmlsbDogI2VlMmY2NTsKICAgICAgfQoKICAgICAgLmNscy05IHsKICAgICAgICBmb250LWZhbWlseTogT1RDVW5kZXJncm91bmQtUmVndWxhciwgJ09UQyBVbmRlcmdyb3VuZCc7CiAgICAgICAgZm9udC1zaXplOiA3MS43N3B4OwogICAgICAgIGxldHRlci1zcGFjaW5nOiAtLjA1ZW07CiAgICAgIH0KICAgIDwvc3R5bGU+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImxpbmVhci1ncmFkaWVudCIgeDE9IjEyNi4xMyIgeTE9IjM1LjgzIiB4Mj0iMTU1LjYyIiB5Mj0iMzUuODMiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZWMzMDY1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iLjkxIiBzdG9wLWNvbG9yPSIjZWU1MDRlIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsaW5lYXItZ3JhZGllbnQtMiIgeDE9IjExOC45OSIgeTE9IjQzLjk1IiB4Mj0iMTI0LjAyIiB5Mj0iNDMuOTUiIHhsaW5rOmhyZWY9IiNsaW5lYXItZ3JhZGllbnQiLz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ibGluZWFyLWdyYWRpZW50LTMiIHgxPSIxMjAuOTEiIHkxPSI1NC44NyIgeDI9IjE1MC41NiIgeTI9IjU0Ljg3IiB4bGluazpocmVmPSIjbGluZWFyLWdyYWRpZW50Ii8+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImxpbmVhci1ncmFkaWVudC00IiB4MT0iMTUyLjc3IiB5MT0iNDYuODIiIHgyPSIxNTcuNzQiIHkyPSI0Ni44MiIgeGxpbms6aHJlZj0iI2xpbmVhci1ncmFkaWVudCIvPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsaW5lYXItZ3JhZGllbnQtNSIgeDE9IjExOS44OCIgeTE9IjMzLjk0IiB4Mj0iMTMxLjMiIHkyPSIzMy45NCIgeGxpbms6aHJlZj0iI2xpbmVhci1ncmFkaWVudCIvPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsaW5lYXItZ3JhZGllbnQtNiIgeDE9IjE0NS4zOSIgeTE9IjU2LjY0IiB4Mj0iMTU2LjkyIiB5Mj0iNTYuNjQiIHhsaW5rOmhyZWY9IiNsaW5lYXItZ3JhZGllbnQiLz4KICA8L2RlZnM+CiAgPGcgaWQ9IkNyb3BfTWFya3MiIGRhdGEtbmFtZT0iQ3JvcCBNYXJrcyI+CiAgICA8Zz4KICAgICAgPGc+CiAgICAgICAgPHBhdGggY2xhc3M9ImNscy04IiBkPSJNMTcuNTYsNWgxNTYuNDJjNi4xMiwwLDExLjEsNC45NywxMS4xLDExLjF2MTU4Ljk2YzAsOS42OS03Ljg3LDE3LjU2LTE3LjU2LDE3LjU2SDE3LjU2Yy05LjY5LDAtMTcuNTYtNy44Ny0xNy41Ni0xNy41NlYyMi41NkMwLDEyLjg3LDcuODcsNSwxNy41Niw1WiIvPgogICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMTAiIGQ9Ik0yMi41NiwwaDE1Ni40MmM2LjEyLDAsMTEuMSw0Ljk3LDExLjEsMTEuMXYxNTguOTZjMCw5LjY5LTcuODcsMTcuNTYtMTcuNTYsMTcuNTZIMjIuNTZjLTkuNjksMC0xNy41Ni03Ljg3LTE3LjU2LTE3LjU2VjE3LjU2QzUsNy44NywxMi44NywwLDIyLjU2LDBaIi8+CiAgICAgICAgPGc+CiAgICAgICAgICA8Y2lyY2xlIGNsYXNzPSJjbHMtNyIgY3g9IjEzOC4zNyIgY3k9IjQ1LjMyIiByPSIyMS4xOCIvPgogICAgICAgICAgPGc+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNiIgZD0iTTEzMC41MSw0My44M2M3LjI3LTIuODUsMTAuNzYtNS41OCwxMC43Ni01LjU4LDAsMCw2Ljk4LTUuMjgsMTQuMzYtMS43OS0yLjM4LTQuNjMtNi41OC04LjE4LTExLjY1LTkuNzEtLjIyLDMuODctMS42OCw3LjUtNC42MSwxMC41LTMuMzksMy40OC04LjEzLDUuNDItMTMuMjMsNS44Mi4wOC43MS4yLDEuMzMuMzIsMS44NSwxLjM0LS4yMiwyLjcyLS41Niw0LjA1LTEuMDlaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNSIgZD0iTTEyNC4wMiw0NS4xOGMtLjAyLS42Mi0uMDYtMS4zMi0uMTEtMi4wNC0xLjU3LS4wMS0zLjE2LS4xNy00Ljc1LS40Ny0uMTEuNzgtLjE3LDEuNTgtLjE4LDIuMzksMS4yNi4xNCwzLjA0LjI1LDUuMDMuMTJaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNCIgZD0iTTE0MC41Niw0OS4yNmwtNi45NCw0LjMycy01LjM5LDMuNjctMTIuNzEuMTdjMi4zNSw0Ljg2LDYuNjgsOC41OSwxMS45MywxMC4xNS43Mi01LjcyLDMuNTUtMTAuNjUsOC43NS0xMy43LDIuNzEtMS41OSw1Ljc4LTIuNDcsOC45Ny0yLjctLjA3LS42My0uMTctMS4xNy0uMjctMS42NS0yLjg1LjM4LTYuMTYsMS4zNi05LjcyLDMuNDFaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTE1Ny43NCw0Ni4xYy0xLjI2LS4yNy0yLjk1LS41LTQuOTctLjQ1LjA0LjU2LjA5LDEuMTcuMTYsMS44LDEuNTQuMDQsMy4wOS4yMyw0LjY0LjU2LjA5LS42My4xNC0xLjI2LjE3LTEuOTFaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTEyMS44NCwzNi4yNHMzLjQxLS43MSw0LjA1LDMuN2MxLjM1LS4zLDIuNTMtLjkyLDMuNDYtMS44NywyLjMzLTIuNCwyLjUxLTYuMzQuODUtMTAuMzQtNC45LDIuMjgtOC42OCw2LjU0LTEwLjMyLDExLjc2LDEuMjcuNDEsMi41Mi42MywzLjcxLjY3LS4zMi0yLjAzLS44Ni0zLjczLTEuNzUtMy45MVoiLz4KICAgICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0yIiBkPSJNMTU1LjIzLDU0LjM2cy0zLjY1LjY2LTQuNC0zLjZjLTEuMTkuMzItMi4yNy44My0zLjExLDEuNDQtMi45OSwyLjIxLTIuNzYsNS45NC0xLjIyLDEwLjcsNC45Ny0yLjMsOC44LTYuNjQsMTAuNDEtMTEuOTUtMS4xMi0uNDUtMi4zNS0uNjItMy41Ny0uNTguMzksMi4wNi45OCwzLjc5LDEuODgsMy45OFoiLz4KICAgICAgICAgIDwvZz4KICAgICAgICA8L2c+CiAgICAgIDwvZz4KICAgICAgPHBhdGggY2xhc3M9ImNscy04IiBkPSJNMTAyLjE1LDI0Ljg1djYzLjhjMCw1LjgzLTYuMDksOS45OC0xNC42Nyw5Ljk4aC00MC43djY2LjgxaC0yNy42OVYxNC44N2g2OC4zOGM4LjU4LDAsMTQuNjcsNC4xNCwxNC42Nyw5Ljk4Wk03NC40NywzNS4zOWMwLTEuODgtMi40OS0zLjU4LTUuMjYtMy41OGgtMjIuNDJ2NDkuODhoMjIuNDJjMi43NywwLDUuMjYtMS42OSw1LjI2LTMuNTh2LTQyLjcyWiIvPgogICAgICA8dGV4dCBjbGFzcz0iY2xzLTkiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDUwLjYyIDE2NS4yNCkgc2NhbGUoMi4xNyAxKSI+PHRzcGFuIHg9IjAiIHk9IjAiPkFZPC90c3Bhbj48L3RleHQ+CiAgICA8L2c+CiAgPC9nPgo8L3N2Zz4=';
@@ -644,6 +764,13 @@ router.get('/', async (request, env) => {
     .masked-val { display: block; font-family: monospace; font-size: 0.85rem; color: #94a3b8; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 12px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .btn-edit { display: block; margin: 10px auto 0; background: #334155; color: #38bdf8; border: 1px solid #475569; border-radius: 6px; padding: 6px 20px; font-size: 0.8rem; cursor: pointer; }
     .btn-edit:hover { background: #475569; }
+		.sub-gate { background: #131f39; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin-top: 10px; }
+		.sub-gate h3 { color: #38bdf8; margin-bottom: 8px; font-size: 1rem; }
+		.sub-gate p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 10px; }
+		.gate-actions { display: grid; gap: 10px; margin-top: 10px; }
+		.btn-secondary { margin-top: 0; background: #334155; color: #e2e8f0; }
+		.btn-buy { margin-top: 0; display: inline-block; text-decoration: none; text-align: center; width: 100%; padding: 12px 16px; border-radius: 10px; background: #f59e0b; color: #111827; font-size: 15px; font-weight: 700; }
+		.btn-buy:hover { opacity: 0.9; }
   </style>
 </head>
 <body>
@@ -674,6 +801,7 @@ router.get('/', async (request, env) => {
     var content = document.getElementById('content');
     var oauthSection = document.getElementById('oauthSection');
     var locationId = '${safeLocationId}' || null;
+		var buySubscriptionUrl = '';
 
     function setStatus(message, type) {
       var existing = document.getElementById('status');
@@ -684,6 +812,68 @@ router.get('/', async (request, env) => {
       div.textContent = message;
       content.prepend(div);
     }
+
+		function renderSubscriptionGate(info) {
+			var message = (info && info.message) || 'Esta sub-cuenta no tiene suscripción activa aún.';
+			buySubscriptionUrl = (info && info.buyUrl) || '';
+
+			var html = '';
+			html += '<div class="sub-header">' +
+				'<strong class="sub-name">' + (locationId || 'Sub-cuenta') + '</strong>' +
+				'<span class="loc-id">' + (locationId || '') + '</span>' +
+				'</div>';
+			html += '<div class="sub-gate">';
+			html += '<h3>Activa tu suscripción</h3>';
+			html += '<p>' + message + '</p>';
+			html += '<label>ID de Suscripción / Código</label>';
+			html += '<input id="subscriptionCode" placeholder="Ej. sub_123 o código de activación" />';
+			html += '<div class="gate-actions">';
+			html += '<button id="btnValidateCode">Guardar y validar</button>';
+			html += '<button id="btnRefreshSubscription" class="btn-secondary">Ya compré, validar suscripción</button>';
+			if (buySubscriptionUrl) {
+				html += '<a class="btn-buy" target="_blank" rel="noopener" href="' + buySubscriptionUrl + '">Ir a pagar suscripción</a>';
+			}
+			html += '</div>';
+			html += '<p class="note">Producto WooCommerce ID: 304</p>';
+			html += '</div>';
+
+			content.innerHTML = html;
+			oauthSection.style.display = 'none';
+
+			document.getElementById('btnValidateCode').addEventListener('click', function() {
+				var btn = this;
+				btn.disabled = true;
+				btn.textContent = 'Validando...';
+				var subscriptionCode = (document.getElementById('subscriptionCode').value || '').trim();
+				fetch('/api/activate-subscription', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ locationId: locationId, subscriptionCode: subscriptionCode })
+				})
+				.then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+				.then(function(res) {
+					btn.disabled = false;
+					btn.textContent = 'Guardar y validar';
+					if (!res.ok || !res.data.success) throw new Error(res.data.error || 'No se pudo validar la suscripción.');
+					if (res.data.active) {
+						setStatus('Suscripción activa. Ahora puedes configurar las llaves.', 'success');
+						setTimeout(function() { loadTenantConfig(); }, 400);
+						return;
+					}
+					renderSubscriptionGate(res.data);
+					setStatus(res.data.message || 'No encontramos una suscripción activa.', 'error');
+				})
+				.catch(function(e) {
+					btn.disabled = false;
+					btn.textContent = 'Guardar y validar';
+					setStatus(e.message || 'Error validando suscripción.', 'error');
+				});
+			});
+
+			document.getElementById('btnRefreshSubscription').addEventListener('click', function() {
+				checkSubscriptionThenContinue(true);
+			});
+		}
 
     function renderForm(tenant) {
       var pkTest = (tenant && tenant.recurrente_public_key) || '';
@@ -843,6 +1033,25 @@ router.get('/', async (request, env) => {
       oauthSection.style.display = 'block';
     }
 
+		function checkSubscriptionThenContinue(showMessage) {
+			content.innerHTML = '<p>Validando suscripción...</p>';
+			fetch('/api/check-subscription?locationId=' + encodeURIComponent(locationId))
+				.then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+				.then(function(res) {
+					if (!res.ok || !res.data.success) throw new Error(res.data.error || 'No se pudo validar la suscripción.');
+					if (res.data.active) {
+						if (showMessage) setStatus('Suscripción activa detectada.', 'success');
+						loadTenantConfig();
+						return;
+					}
+					renderSubscriptionGate(res.data);
+					if (showMessage) setStatus(res.data.message || 'No encontramos suscripción activa.', 'error');
+				})
+				.catch(function(e) {
+					renderSubscriptionGate({ message: e.message || 'Error de validación de suscripción.' });
+				});
+		}
+
     function loadTenantConfig() {
       content.innerHTML = '<p>Cargando configuración...</p>';
       fetch('/api/config?locationId=' + encodeURIComponent(locationId))
@@ -868,7 +1077,7 @@ router.get('/', async (request, env) => {
 
     function init() {
       if (locationId) {
-        loadTenantConfig();
+				checkSubscriptionThenContinue(false);
       } else {
         renderNoLocation();
       }
