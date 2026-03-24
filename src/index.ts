@@ -830,7 +830,7 @@ router.get('/', async (request, env) => {
 			html += '<button id="btnValidateCode">Guardar y validar</button>';
 			html += '<button id="btnRefreshSubscription" class="btn-secondary">Ya compré, validar suscripción</button>';
 			if (buySubscriptionUrl) {
-				html += '<a class="btn-buy" href="' + buySubscriptionUrl + '">COMPRAR SUSCRIPCIÓN</a>';
+				html += '<a class="btn-buy" target="_blank" rel="noopener noreferrer" href="' + buySubscriptionUrl + '">COMPRAR SUSCRIPCIÓN</a>';
 			}
 			html += '</div>';
 			html += '<p class="note">Producto WooCommerce ID: 304</p>';
