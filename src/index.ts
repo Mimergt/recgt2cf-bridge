@@ -407,6 +407,8 @@ router.get('/', async () => {
 		.status { padding: 11px 12px; border-radius: 10px; font-size: 14px; margin-bottom: 14px; border: 1px solid; }
 		.status.ok { background: rgba(42, 191, 114, .16); color: #9cf0c2; border-color: rgba(108, 229, 162, .45); }
 		.status.warn { background: rgba(240, 163, 27, .16); color: #ffd38a; border-color: rgba(240, 163, 27, .5); }
+		.tenant-name { margin: 8px 0 0; font-size: 36px; line-height: 1.08; color: #f0f6ff; letter-spacing: -0.02em; }
+		.tenant-loc { margin: 2px 0 0; color: #738bb2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 		.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 		.field { margin-bottom: 12px; }
 		label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #b7caea; text-transform: uppercase; letter-spacing: .06em; }
@@ -455,6 +457,27 @@ router.get('/', async () => {
 			padding: 14px;
 			background: rgba(15, 25, 49, .55);
 		}
+		.test-box .field { margin-bottom: 10px; }
+		.test-box .field:last-child { margin-bottom: 0; }
+		.test-title {
+			margin: 0 0 8px;
+			font-size: 30px;
+			font-weight: 800;
+			color: #ffcb42;
+		}
+		.subtle-btn {
+			display: block;
+			width: 100%;
+			border: 1px solid #40608f;
+			border-radius: 8px;
+			background: #2f4466;
+			color: #48c3ff;
+			font-weight: 700;
+			padding: 9px 12px;
+			cursor: pointer;
+			margin-top: 6px;
+		}
+		.subtle-btn:hover { background: #35517c; }
 		.mode-row {
 			display: flex;
 			align-items: center;
@@ -486,10 +509,36 @@ router.get('/', async () => {
 			font-size: 12px;
 			font-weight: 800;
 		}
+		.save-main {
+			display: block;
+			width: 100%;
+			margin-top: 14px;
+			border: 0;
+			border-radius: 12px;
+			background: #3368de;
+			color: #fff;
+			padding: 12px 16px;
+			font-size: 33px;
+			font-weight: 800;
+			cursor: pointer;
+		}
+		.save-main:hover { background: #2d5fcf; }
+		.validate-btn {
+			margin-top: 10px;
+			border: 0;
+			border-radius: 10px;
+			padding: 9px 14px;
+			background: #314a73;
+			color: #9ad5ff;
+			font-weight: 700;
+			cursor: pointer;
+		}
+		.validate-btn:hover { background: #365585; }
 		@media (max-width: 760px) {
 			.grid { grid-template-columns: 1fr; }
 			.head { flex-direction: column; align-items: flex-start; }
 			.title { font-size: 34px; }
+			.tenant-name { font-size: 28px; }
 		}
 	</style>
 </head>
@@ -504,6 +553,8 @@ router.get('/', async () => {
 						<summary>Dónde encuentro las llaves?</summary>
 						<p class="sub">En tu cuenta Recurrente, sección de API Keys. Usa llaves de prueba para modo TEST.</p>
 					</details>
+					<h2 id="tenant-name" class="tenant-name">Sub-cuenta</h2>
+					<p id="tenant-location" class="tenant-loc">-</p>
 				</div>
 				<div id="sub-status-pill" class="pill warn">Validando...</div>
 			</div>
@@ -534,35 +585,33 @@ router.get('/', async () => {
 					<hr class="divider" />
 					<h3 style="margin:0 0 10px; font-size: 32px;">Llaves de Recurrente</h3>
 					<div class="test-box">
+						<h4 class="test-title">Llaves de Prueba (Test)</h4>
 					<div class="grid">
 						<div class="field">
-							<label>Nombre comercial</label>
+							<label>Clave Pública (test)</label>
+							<input id="public-key" type="text" placeholder="pk_test_..." readonly />
+						</div>
+						<div class="field">
+							<label>Clave Secreta (test)</label>
+							<input id="secret-key" type="password" placeholder="sk_test_..." readonly />
+						</div>
+					</div>
+					<button class="subtle-btn" id="btn-edit-keys" type="button">Editar llaves</button>
+					</div>
+
+					<div class="field" style="margin-top: 12px;">
+						<label>Nombre comercial</label>
 							<input id="business-name" type="text" placeholder="Ej: Nexus" />
-						</div>
-						<div class="field">
-							<label>Modo</label>
-							<input value="test" disabled />
-						</div>
-						<div class="field">
-							<label>Public Key (test)</label>
-							<input id="public-key" type="text" placeholder="pk_test_..." />
-						</div>
-						<div class="field">
-							<label>Secret Key (test)</label>
-							<input id="secret-key" type="password" placeholder="sk_test_..." />
-						</div>
 					</div>
-					</div>
+
 					<div class="mode-row">
 						<div class="switch"></div>
 						<div style="font-weight:700;">Modo LIVE</div>
 						<span class="tag-test">TEST</span>
 					</div>
 					<div class="muted">Modo actual: <strong>TEST</strong> - se usan las llaves de prueba.</div>
-					<div class="actions">
-						<button class="btn-primary" id="btn-save-keys">Guardar configuración</button>
-						<button class="btn-soft" id="btn-recheck">Validar suscripción</button>
-					</div>
+					<button class="save-main" id="btn-save-keys">Guardar configuración</button>
+					<button class="validate-btn" id="btn-recheck">Validar suscripción</button>
 					<div class="muted">Las llaves se guardan por sub-cuenta (location_id).</div>
 				</div>
 
@@ -633,6 +682,8 @@ router.get('/', async () => {
 				const data = await res.json();
 				if (data.success && data.tenant) {
 					document.getElementById('business-name').value = data.tenant.business_name || '';
+					document.getElementById('tenant-name').textContent = data.tenant.business_name || 'Sub-cuenta';
+					document.getElementById('tenant-location').textContent = locationId;
 
 					const publicInput = document.getElementById('public-key');
 					const secretInput = document.getElementById('secret-key');
@@ -649,6 +700,11 @@ router.get('/', async () => {
 					setMsg('Ya existe configuración previa para esta sub-cuenta. Las llaves se muestran enmascaradas por seguridad.', true);
 				}
 			} catch (_) {}
+		}
+
+		function setKeysEditable(editable) {
+			document.getElementById('public-key').readOnly = !editable;
+			document.getElementById('secret-key').readOnly = !editable;
 		}
 
 		function syncBuyLink(locationId) {
@@ -718,6 +774,7 @@ router.get('/', async () => {
 			if (data.success) {
 				setMsg('Llaves guardadas correctamente.', true);
 				document.getElementById('secret-key').value = '';
+				setKeysEditable(false);
 				await loadTenant(locationId);
 			} else {
 				setMsg(data.error || 'No se pudieron guardar las llaves.', false);
@@ -728,6 +785,8 @@ router.get('/', async () => {
 			const locationId = detectLocationId();
 			const input = document.getElementById('location-id');
 			input.value = locationId;
+			document.getElementById('tenant-location').textContent = locationId || '-';
+			setKeysEditable(false);
 
 			if (!locationId) {
 				setStatus(false, 'No pudimos detectar automáticamente tu location ID. Pégalo manualmente para continuar.');
@@ -742,6 +801,11 @@ router.get('/', async () => {
 
 		document.getElementById('btn-activate').addEventListener('click', activateAndValidate);
 		document.getElementById('btn-save-keys').addEventListener('click', saveKeys);
+		document.getElementById('btn-edit-keys').addEventListener('click', () => {
+			setKeysEditable(true);
+			document.getElementById('public-key').focus();
+			setMsg('Modo edición habilitado. Actualiza llaves y guarda configuración.', true);
+		});
 		document.getElementById('btn-recheck').addEventListener('click', async () => {
 			const locationId = document.getElementById('location-id').value.trim();
 			if (!locationId) return setMsg('Falta location ID.', false);
