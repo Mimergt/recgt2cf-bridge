@@ -380,9 +380,9 @@ router.get('/', async () => {
 		}
 		.wrap { max-width: 760px; margin: 12px auto; padding: 0 14px; }
 		.logo-box {
-			width: 88px;
-			height: 88px;
-			margin: 8px auto 12px;
+			width: 74px;
+			height: 74px;
+			margin: 8px auto 14px;
 			border-radius: 12px;
 			background: linear-gradient(160deg, #f72585 0%, #ff2f68 100%);
 			display: flex;
@@ -391,7 +391,7 @@ router.get('/', async () => {
 			box-shadow: 0 8px 24px rgba(255, 44, 109, .35);
 			overflow: hidden;
 		}
-		.logo-svg { width: 70px; height: 70px; display: block; }
+		.logo-svg { width: 62px; height: 62px; display: block; }
 		.card {
 			background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
 			border: 1px solid var(--line);
@@ -400,7 +400,7 @@ router.get('/', async () => {
 			overflow: hidden;
 		}
 		.head { padding: 18px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-		.title { margin: 0; font-size: 42px; line-height: 1.08; color: var(--brand); letter-spacing: -0.02em; }
+		.title { margin: 0; font-size: 47px; line-height: 1.04; color: var(--brand); letter-spacing: -0.02em; }
 		.sub { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
 		.body { padding: 18px 20px; }
 		.status { padding: 11px 12px; border-radius: 10px; font-size: 14px; margin-bottom: 14px; border: 1px solid; }
@@ -460,7 +460,7 @@ router.get('/', async () => {
 		.test-box .field:last-child { margin-bottom: 0; }
 		.test-title {
 			margin: 0 0 8px;
-			font-size: 30px;
+			font-size: 26px;
 			font-weight: 800;
 			color: #ffcb42;
 		}
@@ -516,8 +516,8 @@ router.get('/', async () => {
 			border-radius: 12px;
 			background: #3368de;
 			color: #fff;
-			padding: 12px 16px;
-			font-size: 33px;
+			padding: 13px 16px;
+			font-size: 21px;
 			font-weight: 800;
 			cursor: pointer;
 		}
@@ -531,12 +531,13 @@ router.get('/', async () => {
 			color: #9ad5ff;
 			font-weight: 700;
 			cursor: pointer;
+			display: none;
 		}
 		.validate-btn:hover { background: #365585; }
 		@media (max-width: 760px) {
 			.grid { grid-template-columns: 1fr; }
 			.head { flex-direction: column; align-items: flex-start; }
-			.title { font-size: 34px; }
+			.title { font-size: 36px; }
 			.tenant-name { font-size: 28px; }
 		}
 	</style>
@@ -546,14 +547,11 @@ router.get('/', async () => {
 		<div class="logo-box" aria-label="Pay logo">
 			<svg class="logo-svg" viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pay">
 				<rect x="0" y="0" width="88" height="88" rx="10" fill="#ff2f78"/>
-				<rect x="14" y="14" width="12" height="28" fill="#111827"/>
-				<rect x="14" y="48" width="12" height="26" fill="#111827"/>
-				<rect x="30" y="14" width="12" height="12" fill="#111827"/>
-				<rect x="30" y="30" width="12" height="12" fill="#111827"/>
-				<rect x="30" y="48" width="12" height="26" fill="#111827"/>
-				<path d="M48 48h10c9 0 14 5 14 13 0 8-6 13-15 13H48V48zm10 9h-4v8h4c3 0 5-2 5-4 0-3-2-4-5-4z" fill="#111827"/>
-				<circle cx="62" cy="18" r="9" fill="#111827"/>
-				<path d="M58 14h8v2h-8zm3 3h2v6h-2z" fill="#ff2f78"/>
+				<text x="14" y="39" font-size="34" font-family="Arial Black, Arial, sans-serif" fill="#111827">P</text>
+				<text x="14" y="73" font-size="34" font-family="Arial Black, Arial, sans-serif" fill="#111827">A</text>
+				<text x="41" y="73" font-size="34" font-family="Arial Black, Arial, sans-serif" fill="#111827">Y</text>
+				<circle cx="58" cy="18" r="8" fill="#111827"/>
+				<text x="55" y="21" font-size="8" font-family="Arial Black, Arial, sans-serif" fill="#ff2f78">T</text>
 			</svg>
 		</div>
 		<div class="card">
@@ -819,14 +817,19 @@ router.get('/', async () => {
 			await renderByStatus(locationId);
 		}
 
-		document.getElementById('btn-activate').addEventListener('click', activateAndValidate);
-		document.getElementById('btn-save-keys').addEventListener('click', saveKeys);
-		document.getElementById('btn-edit-keys').addEventListener('click', () => {
+		const btnActivate = document.getElementById('btn-activate');
+		const btnSave = document.getElementById('btn-save-keys');
+		const btnEdit = document.getElementById('btn-edit-keys');
+		const btnRecheck = document.getElementById('btn-recheck');
+
+		if (btnActivate) btnActivate.addEventListener('click', activateAndValidate);
+		if (btnSave) btnSave.addEventListener('click', saveKeys);
+		if (btnEdit) btnEdit.addEventListener('click', () => {
 			setKeysEditable(true);
 			document.getElementById('public-key').focus();
 			setMsg('Modo edición habilitado. Actualiza llaves y guarda configuración.', true);
 		});
-		document.getElementById('btn-recheck').addEventListener('click', async () => {
+		if (btnRecheck) btnRecheck.addEventListener('click', async () => {
 			const locationId = document.getElementById('location-id').value.trim();
 			if (!locationId) return setMsg('Falta location ID.', false);
 			await renderByStatus(locationId);
@@ -838,7 +841,12 @@ router.get('/', async () => {
 </html>`;
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html; charset=utf-8' },
+		headers: {
+			'Content-Type': 'text/html; charset=utf-8',
+			'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+			'Pragma': 'no-cache',
+			'Expires': '0',
+		},
 	});
 });
 
