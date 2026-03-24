@@ -389,10 +389,9 @@ router.get('/', async () => {
 			align-items: center;
 			justify-content: center;
 			box-shadow: 0 8px 24px rgba(255, 44, 109, .35);
-			font-weight: 900;
-			font-size: 30px;
-			letter-spacing: .02em;
+			overflow: hidden;
 		}
+		.logo-svg { width: 70px; height: 70px; display: block; }
 		.card {
 			background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
 			border: 1px solid var(--line);
@@ -544,7 +543,19 @@ router.get('/', async () => {
 </head>
 <body>
 	<div class="wrap">
-		<div class="logo-box">Pay</div>
+		<div class="logo-box" aria-label="Pay logo">
+			<svg class="logo-svg" viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pay">
+				<rect x="0" y="0" width="88" height="88" rx="10" fill="#ff2f78"/>
+				<rect x="14" y="14" width="12" height="28" fill="#111827"/>
+				<rect x="14" y="48" width="12" height="26" fill="#111827"/>
+				<rect x="30" y="14" width="12" height="12" fill="#111827"/>
+				<rect x="30" y="30" width="12" height="12" fill="#111827"/>
+				<rect x="30" y="48" width="12" height="26" fill="#111827"/>
+				<path d="M48 48h10c9 0 14 5 14 13 0 8-6 13-15 13H48V48zm10 9h-4v8h4c3 0 5-2 5-4 0-3-2-4-5-4z" fill="#111827"/>
+				<circle cx="62" cy="18" r="9" fill="#111827"/>
+				<path d="M58 14h8v2h-8zm3 3h2v6h-2z" fill="#ff2f78"/>
+			</svg>
+		</div>
 		<div class="card">
 			<div class="head">
 				<div>
@@ -562,7 +573,7 @@ router.get('/', async () => {
 			<div class="body">
 				<div id="status-box" class="status warn">Verificando suscripción de la sub-cuenta...</div>
 
-				<div class="field">
+				<div id="location-block" class="field">
 					<label>Location ID (GHL)</label>
 					<input id="location-id" type="text" placeholder="Se detecta automáticamente" />
 					<div class="muted">Si no se detecta solo, puedes pegarlo manualmente y presionar "Validar suscripción".</div>
@@ -715,14 +726,23 @@ router.get('/', async () => {
 		async function renderByStatus(locationId) {
 			const result = await checkSubscription(locationId);
 			const active = !!(result && result.success && result.active);
+			const statusBox = document.getElementById('status-box');
+			const locationBlock = document.getElementById('location-block');
+			const statusPill = document.getElementById('sub-status-pill');
 
 			if (active) {
 				setStatus(true, 'Tu sub-cuenta tiene suscripción activa. Ya puedes configurar llaves.');
+				statusBox.classList.add('hidden');
+				locationBlock.classList.add('hidden');
+				statusPill.classList.add('hidden');
 				document.getElementById('inactive-panel').classList.add('hidden');
 				document.getElementById('active-panel').classList.remove('hidden');
 				await loadTenant(locationId);
 			} else {
 				setStatus(false, 'No encontramos suscripción activa para esta sub-cuenta.');
+				statusBox.classList.remove('hidden');
+				locationBlock.classList.remove('hidden');
+				statusPill.classList.remove('hidden');
 				document.getElementById('active-panel').classList.add('hidden');
 				document.getElementById('inactive-panel').classList.remove('hidden');
 			}
