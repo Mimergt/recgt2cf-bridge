@@ -1,5 +1,6 @@
 {
 	"name": "recurrente-bridge",
+	"account_id": "db8d33d5dfbdf640b40aa3c13b2c2927",
 	"main": "src/index.ts",
 	"compatibility_date": "2024-12-30",
 	"observability": {
@@ -12,12 +13,10 @@
 			"database_name": "ghl-recurrente-db",
 			"database_id": "c3cab438-4c2c-4941-a8c3-3cc0b3443284"
 		}
-	]
-},
-	// Nexus Subscription Controller env vars (set real values via 'wrangler secret put')
+	],
 	"vars": {
-		"WP_SITE_URL": "",
-		"WP_NEXUS_API_KEY": "",
-		"NSC_ADMIN_KEY": ""
+		"WP_SITE_URL": "https://pagos.epic.gt",
+		"WP_NEXUS_API_KEY": "48Rg-E2Q3E7EWJntFZu6HB89ktwV1J0HzQXV6fN2nGcZME6_V01SAe5SqRseOUf7",
+		"NSC_ADMIN_KEY": "9527h5u_m7I0uiiQgnzAaZp9y_KL7vFPEn-bDRXMtXLH_bC7cIM16OvSZ4UPQvt7"
 	}
 }
