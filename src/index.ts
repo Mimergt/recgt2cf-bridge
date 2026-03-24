@@ -232,22 +232,24 @@ router.get('/oauth/callback', async (request, env, params) => {
 				debugInfo += `- GET /connect (Check): ${checkResponse.status} - ${checkData.substring(0, 100)}\n`;
 
 				const basePayload = {
-					name: 'EPICPay1',
-					description: 'Integración oficial de Recurrente puenteada en Cloudflare',
-					imageUrl: 'https://cdn.recurrente.com/favicon.png',
+					name: 'EPICPay-Recurrente',
+					description: 'Proveedor de pagos Recurrente.gt para NEXUS. Soporta Guatemala Quetzales y US Dólares. Desarrollado por EPIC.gt, certificado por Recurrente.',
+					imageUrl: 'https://recurrente-bridge.epicgt.workers.dev/logo.svg',
 					paymentsUrl: 'https://recurrente-bridge.epicgt.workers.dev/payment?chargeId={chargeId}&amount={amount}&currency={currency}&contactEmail={contactEmail}&name={name}',
 					queryUrl: 'https://recurrente-bridge.epicgt.workers.dev/api/query'
 				};
 
-				// --- STEP 2: Create Base Provider if it doesn't exist (Fixes 422) ---
-				// Based on research, /provider is for creation, /connect is for keys.
+				// --- STEP 2: Create or update provider (avoid duplicates) ---
+				// If /connect already returned provider data (200), patch it; otherwise create it.
+				const providerExists = checkResponse.status === 200 && checkData.includes('name');
+				let providerMethod = providerExists ? 'PATCH' : 'POST';
 				const createResponse = await fetch(`https://services.leadconnectorhq.com/payments/custom-provider/provider?locationId=${locationId}`, {
-					method: 'POST',
+					method: providerMethod,
 					headers: commonHeaders,
 					body: JSON.stringify(basePayload)
 				});
 				const createData = await createResponse.text();
-				debugInfo += `- POST /provider (Create): ${createResponse.status} - ${createData.substring(0, 100)}\n`;
+				debugInfo += `- ${providerMethod} /provider (${providerExists ? 'Update' : 'Create'}): ${createResponse.status} - ${createData.substring(0, 100)}\n`;
 
 				// --- STEP 3: Connect API Keys ---
 				const connectResponse = await fetch(`https://services.leadconnectorhq.com/payments/custom-provider/connect?locationId=${locationId}`, {
@@ -348,6 +350,25 @@ router.get('/oauth/callback', async (request, env, params) => {
 	}
 
 	return Response.redirect(finalRedirectUrl, 302);
+});
+
+// ─── Root (Cargado en los iframes de GHL) ──────────────────
+router.get('/logo.svg', async () => {
+	const svg = `<svg viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="88" height="88" rx="10" fill="#ff2f78"/>
+<text x="14" y="39" font-size="34" font-family="Arial Black, Arial, sans-serif" fill="#111827">P</text>
+<text x="14" y="73" font-size="34" font-family="Arial Black, Arial, sans-serif" fill="#111827">A</text>
+<text x="41" y="73" font-size="34" font-family="Arial Black, Arial, sans-serif" fill="#111827">Y</text>
+<circle cx="58" cy="18" r="8" fill="#111827"/>
+<text x="55" y="21" font-size="8" font-family="Arial Black, Arial, sans-serif" fill="#ff2f78">T</text>
+</svg>`;
+	return new Response(svg, {
+		headers: {
+			'Content-Type': 'image/svg+xml',
+			'Cache-Control': 'public, max-age=86400',
+			'Access-Control-Allow-Origin': '*',
+		},
+	});
 });
 
 // ─── Root (Cargado en los iframes de GHL) ──────────────────
