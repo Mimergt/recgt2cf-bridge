@@ -40,6 +40,9 @@ import {
 	handleDeleteTenant,
 	handleToggleTenant,
 	handleAdminDashboard,
+	handleListGiftCodes,
+	handleCreateGiftCode,
+	handleRedeemGiftCode,
 } from './admin';
 import { upsertGhlToken, getGhlToken, getValidGhlToken, getExpiringTokens, refreshGhlToken, getTenant, getSetting } from './db';
 
@@ -244,6 +247,21 @@ router.post('/admin/tenant/toggle', async (request, env, params) => {
 	const denied = requireAdmin(request, env);
 	if (denied) return denied;
 	return handleToggleTenant(request, env, params);
+});
+router.get('/admin/gift-codes', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleListGiftCodes(request, env, params);
+});
+router.post('/admin/gift-codes/create', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleCreateGiftCode(request, env, params);
+});
+router.post('/admin/gift-codes/redeem', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleRedeemGiftCode(request, env, params);
 });
 router.get('/admin/tenants', async (request, env, params) => {
 	const denied = requireAdmin(request, env);

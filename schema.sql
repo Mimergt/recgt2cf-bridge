@@ -55,3 +55,17 @@ CREATE TABLE IF NOT EXISTS bridge_settings (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+-- Manual activation codes for gifted access (non-Woo subscriptions)
+CREATE TABLE IF NOT EXISTS manual_activations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    location_id TEXT,
+    is_used INTEGER DEFAULT 0,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    used_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_manual_activations_code ON manual_activations(code);
+CREATE INDEX IF NOT EXISTS idx_manual_activations_location ON manual_activations(location_id);
