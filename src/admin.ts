@@ -93,7 +93,7 @@ function makeRandomCode(size = 11): string {
 
 async function fetchWooSubscriptionInfo(env: Env, locationId: string): Promise<WooSubscriptionInfo> {
     const wpSite = (env.WP_SITE_URL || '').replace(/\/+$/, '');
-    const wpKey = env.WP_NEXUS_API_KEY || '';
+    const wpKey = env.WP_NEXUS_API_KEY_SECRET || env.WP_NEXUS_API_KEY || '';
     if (!wpSite || !wpKey) {
         return { active: false, subscriptionId: '', expiresAt: '' };
     }

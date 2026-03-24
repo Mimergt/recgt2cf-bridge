@@ -4,6 +4,7 @@ export interface Env {
     GHL_CLIENT_SECRET: string;
     ADMIN_SECRET: string;
     WP_SITE_URL?: string;
+    WP_NEXUS_API_KEY_SECRET?: string;
     WP_NEXUS_API_KEY?: string;
     SUBSCRIPTION_PRODUCT_URL?: string;
     SUBSCRIPTION_PRODUCT_ID?: string;

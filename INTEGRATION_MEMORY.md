@@ -11,7 +11,7 @@ Crear un puente (Bridge) mediante **Cloudflare Workers** para integrar la pasare
 - **GHL App:** `Alpha EpicPay`, Client ID `69aa4f5d412b25fc2d651a94-mmed28do`, Provider Name `EPICPay1`
 - **GHL whitelabel:** `app.nexus.epic.gt` / API: `api.nexus.epic.gt`
 - **Sub-cuentas:** `4jq4IBO2szzCj4eNcsvC` (principal), `F3KaWF6FPROLt1nbADW0`
-- **ADMIN_SECRET:** `epicpay-admin-2026` (header `X-Admin-Key`)
+- **ADMIN_SECRET:** configurado como secreto en Cloudflare Worker (header `X-Admin-Key`)
 - **invoice_domain:** `https://api.nexus.epic.gt` (en bridge_settings D1)
 
 ## 3. Flujo de Pago (v7 — invoices + payment links, 17 marzo 2026) ✅ FUNCIONAL
