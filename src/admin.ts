@@ -15,6 +15,15 @@ type WooSubscriptionInfo = {
     expiresAt: string;
 };
 
+type GroupSource = 'woo' | 'gift';
+
+type TenantGroup = {
+    id: number;
+    name: string;
+    source_type: GroupSource;
+    color: string;
+};
+
 async function ensureManualActivationsTable(db: D1Database): Promise<void> {
     await db.prepare(
         `CREATE TABLE IF NOT EXISTS manual_activations (
@@ -27,6 +36,52 @@ async function ensureManualActivationsTable(db: D1Database): Promise<void> {
             used_at TEXT
         )`
     ).run();
+}
+
+async function ensureTenantGroupsTables(db: D1Database): Promise<void> {
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS tenant_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL CHECK (source_type IN ('woo', 'gift')),
+            color TEXT DEFAULT '#2563eb',
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(name, source_type)
+        )`
+    ).run();
+
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS tenant_group_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id TEXT NOT NULL,
+            source_type TEXT NOT NULL CHECK (source_type IN ('woo', 'gift')),
+            group_id INTEGER NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(location_id, source_type),
+            FOREIGN KEY (group_id) REFERENCES tenant_groups(id) ON DELETE CASCADE
+        )`
+    ).run();
+
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tenant_groups_source ON tenant_groups(source_type)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tenant_group_assignments_location_source ON tenant_group_assignments(location_id, source_type)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tenant_group_assignments_group ON tenant_group_assignments(group_id)').run();
+}
+
+function normalizeSourceType(sourceType: string): GroupSource | null {
+    if (sourceType === 'woo' || sourceType === 'gift') return sourceType;
+    return null;
+}
+
+async function resolveTenantAccessSource(env: Env, locationId: string): Promise<'woo' | 'gift' | 'none'> {
+    const woo = await fetchWooSubscriptionInfo(env, locationId);
+    if (woo.active) return 'woo';
+
+    const gift = await env.DB.prepare(
+        'SELECT id FROM manual_activations WHERE is_used = 1 AND location_id = ? LIMIT 1'
+    ).bind(locationId).first<{ id: number }>();
+    if (gift) return 'gift';
+    return 'none';
 }
 
 function makeRandomCode(size = 11): string {
@@ -110,6 +165,11 @@ export async function handleRedeemGiftCode(
     const code = (body.code || '').trim().toUpperCase();
     if (!locationId || !code) return jsonResponse({ success: false, error: 'Faltan locationId o code' }, 400);
 
+    const woo = await fetchWooSubscriptionInfo(env, locationId);
+    if (woo.active) {
+        return jsonResponse({ success: false, error: 'Sub-cuenta con Woo activa no puede usar códigos regalo' }, 400);
+    }
+
     const row = await env.DB.prepare('SELECT id, is_used, location_id FROM manual_activations WHERE code = ? LIMIT 1')
         .bind(code)
         .first<{ id: number; is_used: number; location_id: string | null }>();
@@ -126,6 +186,104 @@ export async function handleRedeemGiftCode(
     await upsertTenant(env.DB, locationId, {});
     await toggleTenant(env.DB, locationId, true);
     return jsonResponse({ success: true, message: `Código aplicado a ${locationId}` });
+}
+
+export async function handleListTenantGroups(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    await ensureTenantGroupsTables(env.DB);
+    const sourceType = normalizeSourceType((params.get('sourceType') || '').trim());
+
+    if (sourceType) {
+        const { results } = await env.DB.prepare(
+            'SELECT id, name, source_type, color FROM tenant_groups WHERE source_type = ? ORDER BY name ASC'
+        ).bind(sourceType).all<TenantGroup>();
+        return jsonResponse({ success: true, groups: results || [] });
+    }
+
+    const { results } = await env.DB.prepare(
+        'SELECT id, name, source_type, color FROM tenant_groups ORDER BY source_type ASC, name ASC'
+    ).all<TenantGroup>();
+    return jsonResponse({ success: true, groups: results || [] });
+}
+
+export async function handleCreateTenantGroup(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    await ensureTenantGroupsTables(env.DB);
+    const body = await request.json<{ name?: string; sourceType?: string; color?: string }>();
+    const name = (body.name || '').trim();
+    const sourceType = normalizeSourceType((body.sourceType || '').trim());
+    const color = (body.color || '').trim() || (sourceType === 'gift' ? '#6d28d9' : '#1e3a8a');
+
+    if (!name) return jsonResponse({ success: false, error: 'Nombre de grupo requerido' }, 400);
+    if (!sourceType) return jsonResponse({ success: false, error: 'sourceType debe ser woo o gift' }, 400);
+
+    try {
+        await env.DB.prepare(
+            'INSERT INTO tenant_groups (name, source_type, color, created_at) VALUES (?, ?, ?, datetime(\'now\'))'
+        ).bind(name, sourceType, color).run();
+        return jsonResponse({ success: true, message: 'Grupo creado', group: { name, sourceType, color } });
+    } catch {
+        return jsonResponse({ success: false, error: 'Grupo ya existe o no se pudo crear' }, 400);
+    }
+}
+
+export async function handleAssignTenantGroup(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    await ensureTenantGroupsTables(env.DB);
+    await ensureManualActivationsTable(env.DB);
+
+    const body = await request.json<{ locationId?: string; sourceType?: string; groupId?: number | null }>();
+    const locationId = (body.locationId || '').trim();
+    const sourceType = normalizeSourceType((body.sourceType || '').trim());
+    const groupId = body.groupId == null ? null : Number(body.groupId);
+
+    if (!locationId) return jsonResponse({ success: false, error: 'locationId requerido' }, 400);
+    if (!sourceType) return jsonResponse({ success: false, error: 'sourceType inválido' }, 400);
+    if (groupId !== null && (!Number.isFinite(groupId) || groupId <= 0)) {
+        return jsonResponse({ success: false, error: 'groupId inválido' }, 400);
+    }
+
+    const currentSource = await resolveTenantAccessSource(env, locationId);
+    if (currentSource !== sourceType) {
+        return jsonResponse({
+            success: false,
+            error: `No se puede asignar grupo ${sourceType.toUpperCase()} a sub-cuenta de origen ${currentSource.toUpperCase()}`
+        }, 400);
+    }
+
+    if (groupId === null) {
+        await env.DB.prepare('DELETE FROM tenant_group_assignments WHERE location_id = ? AND source_type = ?')
+            .bind(locationId, sourceType)
+            .run();
+        return jsonResponse({ success: true, message: `Grupo removido de ${locationId}` });
+    }
+
+    const group = await env.DB.prepare('SELECT id, source_type FROM tenant_groups WHERE id = ? LIMIT 1')
+        .bind(groupId)
+        .first<{ id: number; source_type: GroupSource }>();
+    if (!group) return jsonResponse({ success: false, error: 'Grupo no existe' }, 404);
+    if (group.source_type !== sourceType) {
+        return jsonResponse({ success: false, error: 'El grupo no pertenece al mismo origen' }, 400);
+    }
+
+    await env.DB.prepare(
+        `INSERT INTO tenant_group_assignments (location_id, source_type, group_id, created_at, updated_at)
+         VALUES (?, ?, ?, datetime('now'), datetime('now'))
+         ON CONFLICT(location_id, source_type) DO UPDATE SET
+            group_id = excluded.group_id,
+            updated_at = datetime('now')`
+    ).bind(locationId, sourceType, groupId).run();
+
+    return jsonResponse({ success: true, message: `Grupo asignado a ${locationId}` });
 }
 
 export async function handleDeleteGiftCode(
@@ -285,12 +443,39 @@ export async function handleAdminDashboard(
     params: URLSearchParams
 ): Promise<Response> {
     await ensureManualActivationsTable(env.DB);
+    await ensureTenantGroupsTables(env.DB);
+
+    const dashboardParams = new URL(request.url).searchParams;
+    const wooGroupFilter = (dashboardParams.get('wooGroup') || 'all').trim();
+    const giftGroupFilter = (dashboardParams.get('giftGroup') || 'all').trim();
+
     const tenants = await listTenantsWithTokens(env.DB);
 
     const { results: codeRows } = await env.DB.prepare(
         'SELECT id, code, location_id, is_used, notes, created_at, used_at FROM manual_activations ORDER BY created_at DESC LIMIT 200'
     ).all<any>();
     const giftCodeRows = codeRows || [];
+
+    const { results: groupRows } = await env.DB.prepare(
+        'SELECT id, name, source_type, color FROM tenant_groups ORDER BY source_type ASC, name ASC'
+    ).all<TenantGroup>();
+    const allGroups = groupRows || [];
+
+    const { results: assignmentRows } = await env.DB.prepare(
+        'SELECT location_id, source_type, group_id FROM tenant_group_assignments'
+    ).all<{ location_id: string; source_type: GroupSource; group_id: number }>();
+
+    const groupsById = new Map<number, TenantGroup>();
+    const groupsBySource: Record<GroupSource, TenantGroup[]> = { woo: [], gift: [] };
+    for (const g of allGroups) {
+        groupsById.set(g.id, g);
+        groupsBySource[g.source_type].push(g);
+    }
+
+    const assignmentByKey = new Map<string, number>();
+    for (const a of assignmentRows || []) {
+        assignmentByKey.set(`${a.location_id}:${a.source_type}`, a.group_id);
+    }
 
     // Auto-fetch names from GHL for tenants without business_name
     for (const t of tenants) {
@@ -317,15 +502,24 @@ export async function handleAdminDashboard(
     const enriched = await Promise.all(tenants.map(async (t: any) => {
         const woo = await fetchWooSubscriptionInfo(env, t.location_id);
         const giftCode = giftCodeRows.find((c: any) => c.is_used === 1 && c.location_id === t.location_id);
+        const accessSource: 'woo' | 'gift' | 'none' = woo.active ? 'woo' : (giftCode ? 'gift' : 'none');
+        const conflict = !!(woo.active && giftCode);
+        const sourceForGroup: GroupSource | null = accessSource === 'none' ? null : accessSource;
+        const assignedGroupId = sourceForGroup ? assignmentByKey.get(`${t.location_id}:${sourceForGroup}`) || null : null;
+        const assignedGroup = assignedGroupId ? groupsById.get(assignedGroupId) || null : null;
+
         return {
             ...t,
             woo,
             giftCode: giftCode ? giftCode.code : '',
-            accessSource: giftCode ? 'gift' : (woo.active ? 'subscription' : 'none'),
+            accessSource,
+            conflict,
+            groupId: assignedGroupId,
+            group: assignedGroup,
         };
     }));
 
-    const rows = enriched.map(t => {
+    const allRows = enriched.map(t => {
         const active = t.is_active === 1;
         const hasKeys = !!(t.recurrente_public_key && t.recurrente_secret_key);
         const mode = t.mode || 'test';
@@ -335,8 +529,8 @@ export async function handleAdminDashboard(
         const exp = t.woo?.expiresAt || '-';
         const accessBadge = t.accessSource === 'gift'
             ? '<span class="badge gift">Regalo</span>'
-            : t.accessSource === 'subscription'
-                ? '<span class="badge sub">Suscripción</span>'
+            : t.accessSource === 'woo'
+                ? '<span class="badge sub">Woo</span>'
                 : '<span class="badge off">Sin acceso</span>';
         return `
         <tr class="${active ? '' : 'inactive'}">
@@ -365,9 +559,86 @@ export async function handleAdminDashboard(
         </tr>`;
     }).join('');
 
-    const subscriptionCount = enriched.filter((t: any) => t.accessSource === 'subscription').length;
-    const giftCount = enriched.filter((t: any) => t.accessSource === 'gift').length;
+    const wooTenants = enriched.filter((t: any) => t.accessSource === 'woo');
+    const giftTenants = enriched.filter((t: any) => t.accessSource === 'gift');
+    const noAccessTenants = enriched.filter((t: any) => t.accessSource === 'none');
+    const conflictCount = enriched.filter((t: any) => t.conflict).length;
+
+    const applyGroupFilter = (rows: any[], filter: string) => {
+        if (!filter || filter === 'all') return rows;
+        if (filter === 'none') return rows.filter((r: any) => !r.groupId);
+        const id = Number(filter);
+        if (!Number.isFinite(id) || id <= 0) return rows;
+        return rows.filter((r: any) => r.groupId === id);
+    };
+
+    const wooFiltered = applyGroupFilter(wooTenants, wooGroupFilter);
+    const giftFiltered = applyGroupFilter(giftTenants, giftGroupFilter);
+
+    const subscriptionCount = wooTenants.length;
+    const giftCount = giftTenants.length;
     const noAccessCount = enriched.filter((t: any) => t.accessSource === 'none').length;
+
+    const buildGroupOptions = (sourceType: GroupSource, selected: number | null) => {
+        const rows = groupsBySource[sourceType];
+        const options = ['<option value="">Sin grupo</option>'];
+        for (const g of rows) {
+            options.push(`<option value="${g.id}" ${selected === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`);
+        }
+        return options.join('');
+    };
+
+    const buildTenantRows = (rows: any[], sourceType: GroupSource) => rows.map((t: any) => {
+        const active = t.is_active === 1;
+        const hasKeys = !!(t.recurrente_public_key && t.recurrente_secret_key);
+        const mode = t.mode || 'test';
+        const name = t.business_name || t.location_id;
+        const wooActive = !!t.woo?.active;
+        const subId = t.woo?.subscriptionId || '-';
+        const exp = t.woo?.expiresAt || '-';
+        const conflictBadge = t.conflict ? '<br><span class="badge warn">Conflicto Woo+Código</span>' : '';
+
+        return `
+        <tr class="${active ? '' : 'inactive'}">
+            <td>
+                <strong>${escapeHtml(name)}</strong>
+                <br><small class="loc-id">${escapeHtml(t.location_id)}</small>
+                ${t.giftCode ? '<br><small class="loc-id">Código: ' + escapeHtml(t.giftCode) + '</small>' : ''}
+                ${conflictBadge}
+            </td>
+            <td><span class="badge ${mode === 'live' ? 'live' : 'test'}">${mode.toUpperCase()}</span></td>
+            <td><span class="badge ${hasKeys ? 'ok' : 'warn'}">${hasKeys ? 'Configuradas' : 'Sin llaves'}</span></td>
+            <td><span class="badge ${t.has_token ? 'ok' : 'warn'}">${t.has_token ? 'Conectado' : 'Sin token'}</span></td>
+            <td>
+                <span class="badge ${wooActive ? 'ok' : 'off'}">${wooActive ? 'Activa' : 'Inactiva'}</span>
+                <br><small class="loc-id">ID: ${escapeHtml(subId)}</small>
+                <br><small class="loc-id">Vence: ${escapeHtml(exp)}</small>
+            </td>
+            <td>
+                <select class="group-select" onchange="assignTenantGroup('${escapeHtml(t.location_id)}', '${sourceType}', this.value)">
+                    ${buildGroupOptions(sourceType, t.groupId || null)}
+                </select>
+            </td>
+            <td><span class="badge ${active ? 'ok' : 'off'}">${active ? 'Autorizada' : 'Bloqueada'}</span></td>
+            <td>
+                <button class="btn ${active ? 'btn-danger' : 'btn-success'}"
+                    onclick="toggleTenant('${escapeHtml(t.location_id)}', ${!active})">
+                    ${active ? 'Bloquear' : 'Autorizar'}
+                </button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    const wooRows = buildTenantRows(wooFiltered, 'woo');
+    const giftRows = buildTenantRows(giftFiltered, 'gift');
+
+    const groupFilterOptions = (sourceType: GroupSource, current: string) => {
+        const items = ['<option value="all">Todos</option>', '<option value="none">Sin grupo</option>'];
+        for (const g of groupsBySource[sourceType]) {
+            items.push(`<option value="${g.id}" ${current === String(g.id) ? 'selected' : ''}>${escapeHtml(g.name)}</option>`);
+        }
+        return items.join('');
+    };
 
     const giftRowsHtml = giftCodeRows.map((c: any) => `
         <tr>
@@ -419,6 +690,11 @@ export async function handleAdminDashboard(
     .section h2 { font-size: 1rem; color: #38bdf8; margin-bottom: 12px; }
     .row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 10px; }
     .row input { width: 100%; background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 10px; border-radius: 6px; }
+    .row select { width: 100%; background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 10px; border-radius: 6px; }
+    .group-select { width: 100%; min-width: 170px; background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 7px 8px; border-radius: 6px; }
+    .inline-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .inline-tools label { color: #94a3b8; font-size: 0.85rem; }
+    .inline-tools select { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 8px; border-radius: 6px; min-width: 170px; }
     .toast { position: fixed; bottom: 20px; right: 20px; background: #1e293b; border: 1px solid #334155; padding: 12px 20px; border-radius: 8px; display: none; z-index: 99; }
     .toast.show { display: block; }
     @media (max-width: 640px) {
@@ -450,7 +726,7 @@ export async function handleAdminDashboard(
         </div>
         <div class="stat-card">
             <div class="num">${subscriptionCount}</div>
-            <div class="label">Con suscripción Woo</div>
+            <div class="label">Cuentas Woo</div>
         </div>
         <div class="stat-card">
             <div class="num">${giftCount}</div>
@@ -460,9 +736,95 @@ export async function handleAdminDashboard(
             <div class="num">${noAccessCount}</div>
             <div class="label">Sin acceso</div>
         </div>
+        <div class="stat-card">
+            <div class="num">${conflictCount}</div>
+            <div class="label">Conflictos Woo+Código</div>
+        </div>
     </div>
 
-    <table>
+    <div class="section" style="margin-top:0;">
+        <h2>Grupos</h2>
+        <div class="row" style="grid-template-columns: 180px 1fr 140px auto;">
+            <select id="groupSourceType">
+                <option value="woo">WooCommerce</option>
+                <option value="gift">Códigos regalo</option>
+            </select>
+            <input id="groupName" placeholder="Nombre de grupo" />
+            <input id="groupColor" type="color" value="#1e3a8a" />
+            <button class="btn btn-generate" onclick="createTenantGroup()">Crear grupo</button>
+        </div>
+        <div class="inline-tools">
+            <label for="wooGroupFilter">Filtro Woo</label>
+            <select id="wooGroupFilter">${groupFilterOptions('woo', wooGroupFilter)}</select>
+            <label for="giftGroupFilter">Filtro Códigos</label>
+            <select id="giftGroupFilter">${groupFilterOptions('gift', giftGroupFilter)}</select>
+            <button class="btn btn-success" onclick="applyGroupFilters()">Aplicar filtros</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Sub-cuentas WooCommerce (${wooFiltered.length})</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Sub-cuenta</th>
+                    <th>Modo</th>
+                    <th>Llaves Recurrente</th>
+                    <th>Token GHL</th>
+                    <th>Suscripción Woo</th>
+                    <th>Grupo Woo</th>
+                    <th>Estado</th>
+                    <th>Acción</th>
+                </tr>
+            </thead>
+            <tbody>${wooRows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#94a3b8;">No hay sub-cuentas Woo para este filtro</td></tr>'}</tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Sub-cuentas por Códigos (${giftFiltered.length})</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Sub-cuenta</th>
+                    <th>Modo</th>
+                    <th>Llaves Recurrente</th>
+                    <th>Token GHL</th>
+                    <th>Suscripción Woo</th>
+                    <th>Grupo Códigos</th>
+                    <th>Estado</th>
+                    <th>Acción</th>
+                </tr>
+            </thead>
+            <tbody>${giftRows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#94a3b8;">No hay sub-cuentas de códigos para este filtro</td></tr>'}</tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Sub-cuentas sin acceso (${noAccessTenants.length})</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Sub-cuenta</th>
+                    <th>Estado</th>
+                    <th>Acción</th>
+                </tr>
+            </thead>
+            <tbody>${noAccessTenants.map((t: any) => {
+                const active = t.is_active === 1;
+                const name = t.business_name || t.location_id;
+                return `<tr>
+                    <td><strong>${escapeHtml(name)}</strong><br><small class="loc-id">${escapeHtml(t.location_id)}</small></td>
+                    <td><span class="badge ${active ? 'ok' : 'off'}">${active ? 'Autorizada' : 'Bloqueada'}</span></td>
+                    <td><button class="btn ${active ? 'btn-danger' : 'btn-success'}" onclick="toggleTenant('${escapeHtml(t.location_id)}', ${!active})">${active ? 'Bloquear' : 'Autorizar'}</button></td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="3" style="text-align:center;padding:18px;color:#94a3b8;">Sin sub-cuentas en este estado</td></tr>'}</tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Resumen general</h2>
+        <table>
         <thead>
             <tr>
                 <th>Sub-cuenta</th>
@@ -475,8 +837,9 @@ export async function handleAdminDashboard(
                 <th>Acción</th>
             </tr>
         </thead>
-        <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:40px;color:#94a3b8;">No hay sub-cuentas configuradas</td></tr>'}</tbody>
-    </table>
+        <tbody>${allRows || '<tr><td colspan="8" style="text-align:center;padding:40px;color:#94a3b8;">No hay sub-cuentas configuradas</td></tr>'}</tbody>
+        </table>
+    </div>
 
     <div class="section">
         <h2>Cuentas regalo / Códigos de activación</h2>
@@ -578,6 +941,63 @@ async function createGiftCode(assignNow) {
         setTimeout(() => location.reload(), 900);
     } catch {
         showToast('Error de red creando código', 'err');
+    }
+}
+
+function applyGroupFilters() {
+    const wooGroup = (document.getElementById('wooGroupFilter').value || 'all');
+    const giftGroup = (document.getElementById('giftGroupFilter').value || 'all');
+    const url = new URL(location.href);
+    url.searchParams.set('wooGroup', wooGroup);
+    url.searchParams.set('giftGroup', giftGroup);
+    if (ADMIN_KEY) url.searchParams.set('adminKey', ADMIN_KEY);
+    location.href = url.toString();
+}
+
+async function createTenantGroup() {
+    const sourceType = (document.getElementById('groupSourceType').value || '').trim();
+    const name = (document.getElementById('groupName').value || '').trim();
+    const color = (document.getElementById('groupColor').value || '').trim();
+    if (!name) {
+        showToast('Ingresa nombre de grupo', 'err');
+        return;
+    }
+
+    try {
+        const res = await fetch('/admin/groups/create?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceType, name, color })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error creando grupo: ' + (data.error || 'desconocido'), 'err');
+            return;
+        }
+        showToast('Grupo creado', 'ok');
+        setTimeout(() => location.reload(), 700);
+    } catch {
+        showToast('Error de red creando grupo', 'err');
+    }
+}
+
+async function assignTenantGroup(locationId, sourceType, groupIdValue) {
+    const groupId = groupIdValue ? Number(groupIdValue) : null;
+    try {
+        const res = await fetch('/admin/groups/assign?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locationId, sourceType, groupId })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error asignando grupo: ' + (data.error || 'desconocido'), 'err');
+            setTimeout(() => location.reload(), 800);
+            return;
+        }
+        showToast(data.message || 'Grupo actualizado', 'ok');
+    } catch {
+        showToast('Error de red asignando grupo', 'err');
     }
 }
 

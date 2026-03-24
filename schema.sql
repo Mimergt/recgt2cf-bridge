@@ -69,3 +69,28 @@ CREATE TABLE IF NOT EXISTS manual_activations (
 
 CREATE INDEX IF NOT EXISTS idx_manual_activations_code ON manual_activations(code);
 CREATE INDEX IF NOT EXISTS idx_manual_activations_location ON manual_activations(location_id);
+
+-- Grouping for tenant organization (separate namespaces for Woo and Gift)
+CREATE TABLE IF NOT EXISTS tenant_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL CHECK (source_type IN ('woo', 'gift')),
+    color TEXT DEFAULT '#2563eb',
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(name, source_type)
+);
+
+CREATE TABLE IF NOT EXISTS tenant_group_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id TEXT NOT NULL,
+    source_type TEXT NOT NULL CHECK (source_type IN ('woo', 'gift')),
+    group_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(location_id, source_type),
+    FOREIGN KEY (group_id) REFERENCES tenant_groups(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_groups_source ON tenant_groups(source_type);
+CREATE INDEX IF NOT EXISTS idx_tenant_group_assignments_location_source ON tenant_group_assignments(location_id, source_type);
+CREATE INDEX IF NOT EXISTS idx_tenant_group_assignments_group ON tenant_group_assignments(group_id);
