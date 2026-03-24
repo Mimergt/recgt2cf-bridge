@@ -21,7 +21,7 @@
 	"vars": {
 		"WP_SITE_URL": "https://pagos.epic.gt",
 		"WP_NEXUS_API_KEY": "48Rg-E2Q3E7EWJntFZu6HB89ktwV1J0HzQXV6fN2nGcZME6_V01SAe5SqRseOUf7",
-		"SUBSCRIPTION_PRODUCT_URL": "https://pagos.epic.gt/p/epicpay-nexus/?v=1bfad22f0925",
+		"SUBSCRIPTION_PRODUCT_URL": "https://pagos.epic.gt/checkout/",
 		"SUBSCRIPTION_PRODUCT_ID": "304"
 	}
 }

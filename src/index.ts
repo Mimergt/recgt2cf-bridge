@@ -54,15 +54,15 @@ function requireAdmin(request: Request, env: Env): Response | null {
 	return null; // authorized
 }
 
-const DEFAULT_SUBSCRIPTION_PRODUCT_URL = 'https://pagos.epic.gt/p/epicpay-nexus/?v=1bfad22f0925';
+const DEFAULT_SUBSCRIPTION_PRODUCT_URL = 'https://pagos.epic.gt/checkout/';
 const DEFAULT_SUBSCRIPTION_PRODUCT_ID = '304';
 
 function buildSubscriptionBuyUrl(env: Env, locationId: string): string {
 	const base = env.SUBSCRIPTION_PRODUCT_URL || DEFAULT_SUBSCRIPTION_PRODUCT_URL;
 	const url = new URL(base);
-	if (!url.searchParams.get('product_id')) {
-		url.searchParams.set('product_id', env.SUBSCRIPTION_PRODUCT_ID || DEFAULT_SUBSCRIPTION_PRODUCT_ID);
-	}
+	const productId = env.SUBSCRIPTION_PRODUCT_ID || DEFAULT_SUBSCRIPTION_PRODUCT_ID;
+	url.searchParams.set('add-to-cart', productId);
+	url.searchParams.set('product_id', productId);
 	url.searchParams.set('account_id', locationId);
 	return url.toString();
 }
@@ -831,7 +831,7 @@ router.get('/', async (request, env) => {
 			html += '<button id="btnValidateCode">Guardar y validar</button>';
 			html += '<button id="btnRefreshSubscription" class="btn-secondary">Ya compré, validar suscripción</button>';
 			if (buySubscriptionUrl) {
-				html += '<a class="btn-buy" target="_blank" rel="noopener" href="' + buySubscriptionUrl + '">Ir a pagar suscripción</a>';
+				html += '<a class="btn-buy" target="_blank" rel="noopener" href="' + buySubscriptionUrl + '">COMPRAR SUSCRIPCIÓN</a>';
 			}
 			html += '</div>';
 			html += '<p class="note">Producto WooCommerce ID: 304</p>';
