@@ -43,6 +43,7 @@ import {
 	handleListGiftCodes,
 	handleCreateGiftCode,
 	handleRedeemGiftCode,
+	handleDeleteGiftCode,
 } from './admin';
 import { upsertGhlToken, getGhlToken, getValidGhlToken, getExpiringTokens, refreshGhlToken, getTenant, getSetting } from './db';
 
@@ -262,6 +263,11 @@ router.post('/admin/gift-codes/redeem', async (request, env, params) => {
 	const denied = requireAdmin(request, env);
 	if (denied) return denied;
 	return handleRedeemGiftCode(request, env, params);
+});
+router.post('/admin/gift-codes/delete', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleDeleteGiftCode(request, env, params);
 });
 router.get('/admin/tenants', async (request, env, params) => {
 	const denied = requireAdmin(request, env);

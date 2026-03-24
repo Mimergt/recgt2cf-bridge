@@ -29,9 +29,9 @@ async function ensureManualActivationsTable(db: D1Database): Promise<void> {
     ).run();
 }
 
-function makeRandomCode(size = 12): string {
+function makeRandomCode(size = 11): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let out = 'GFT-';
+    let out = 'EPIC-GT';
     for (let i = 0; i < size; i++) out += chars[Math.floor(Math.random() * chars.length)];
     return out;
 }
@@ -126,6 +126,29 @@ export async function handleRedeemGiftCode(
     await upsertTenant(env.DB, locationId, {});
     await toggleTenant(env.DB, locationId, true);
     return jsonResponse({ success: true, message: `Código aplicado a ${locationId}` });
+}
+
+export async function handleDeleteGiftCode(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    await ensureManualActivationsTable(env.DB);
+    const body = await request.json<{ id?: number }>();
+    const id = Number(body.id);
+    if (!Number.isFinite(id) || id <= 0) {
+        return jsonResponse({ success: false, error: 'Falta id válido del código' }, 400);
+    }
+
+    const existing = await env.DB.prepare('SELECT id, code FROM manual_activations WHERE id = ? LIMIT 1')
+        .bind(id)
+        .first<{ id: number; code: string }>();
+    if (!existing) {
+        return jsonResponse({ success: false, error: 'Código no existe' }, 404);
+    }
+
+    await env.DB.prepare('DELETE FROM manual_activations WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true, message: `Código ${existing.code} eliminado` });
 }
 
 // ─── List Tenants ───────────────────────────────────────────
@@ -353,6 +376,7 @@ export async function handleAdminDashboard(
             <td><small class="loc-id">${escapeHtml(c.location_id || '-')}</small></td>
             <td><small class="loc-id">${escapeHtml(c.created_at || '-')}</small></td>
             <td><small class="loc-id">${escapeHtml(c.notes || '-')}</small></td>
+            <td><button class="btn btn-danger" onclick="deleteGiftCode(${Number(c.id) || 0}, '${escapeHtml(c.code || '')}')">Borrar</button></td>
         </tr>
     `).join('');
 
@@ -457,7 +481,7 @@ export async function handleAdminDashboard(
     <div class="section">
         <h2>Cuentas regalo / Códigos de activación</h2>
         <div class="row">
-            <input id="giftCode" placeholder="Código (opcional, se genera si lo dejas vacío)" />
+            <input id="giftCode" placeholder="Código (opcional, auto: EPIC-GTXXXXXXXXXXX)" />
             <input id="giftNote" placeholder="Nota (opcional)" />
             <button class="btn btn-generate" onclick="createGiftCode(false)">Crear código</button>
         </div>
@@ -473,9 +497,10 @@ export async function handleAdminDashboard(
                     <th>Location ID</th>
                     <th>Creado</th>
                     <th>Nota</th>
+                    <th>Acción</th>
                 </tr>
             </thead>
-            <tbody>${giftRowsHtml || '<tr><td colspan="5" style="text-align:center;padding:18px;color:#94a3b8;">Sin códigos todavía</td></tr>'}</tbody>
+            <tbody>${giftRowsHtml || '<tr><td colspan="6" style="text-align:center;padding:18px;color:#94a3b8;">Sin códigos todavía</td></tr>'}</tbody>
         </table>
     </div>
 </div>
@@ -553,6 +578,32 @@ async function createGiftCode(assignNow) {
         setTimeout(() => location.reload(), 900);
     } catch {
         showToast('Error de red creando código', 'err');
+    }
+}
+
+async function deleteGiftCode(id, code) {
+    if (!id) {
+        showToast('ID de código inválido', 'err');
+        return;
+    }
+    const confirmed = confirm('¿Borrar el código ' + code + '? Esta acción no se puede deshacer.');
+    if (!confirmed) return;
+
+    try {
+        const res = await fetch('/admin/gift-codes/delete?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error borrando código: ' + (data.error || 'desconocido'), 'err');
+            return;
+        }
+        showToast(data.message || 'Código eliminado', 'ok');
+        setTimeout(() => location.reload(), 700);
+    } catch {
+        showToast('Error de red borrando código', 'err');
     }
 }
 
