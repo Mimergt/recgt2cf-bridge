@@ -1,4 +1,4 @@
-import type { Env, Tenant, Transaction } from './types';
+import type { Env, GatewayCredentialSet, GatewayType, Tenant, TenantGateway, Transaction } from './types';
 
 // ─── Tenant Operations ─────────────────────────────────────
 
@@ -386,4 +386,266 @@ export async function getSetting(db: D1Database, key: string): Promise<string | 
 
     const row = await db.prepare('SELECT value FROM bridge_settings WHERE key = ?').bind(key).first<{ value: string }>();
     return row ? row.value : null;
+}
+
+// ─── Tenant Gateways (Phase 1 Multi-gateway Infrastructure) ───────────────
+
+function parseGatewayConfig(raw: string): GatewayCredentialSet {
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return parsed as GatewayCredentialSet;
+        }
+        return {};
+    } catch {
+        return {};
+    }
+}
+
+export async function ensureTenantGatewaysTable(db: D1Database): Promise<void> {
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS tenant_gateways (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id TEXT NOT NULL,
+            gateway_type TEXT NOT NULL CHECK (gateway_type IN ('recurrente', 'cybersource')),
+            mode TEXT NOT NULL DEFAULT 'test' CHECK (mode IN ('test', 'live')),
+            is_active INTEGER NOT NULL DEFAULT 0,
+            config_test TEXT NOT NULL DEFAULT '{}',
+            config_live TEXT NOT NULL DEFAULT '{}',
+            display_name TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(location_id, gateway_type)
+        )`
+    ).run();
+
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tenant_gateways_location ON tenant_gateways(location_id)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tenant_gateways_location_active ON tenant_gateways(location_id, is_active)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tenant_gateways_type ON tenant_gateways(gateway_type)').run();
+
+    // Runtime-safe backfill so existing tenants keep working even if schema.sql was not re-applied yet.
+    await db.prepare(
+        `INSERT INTO tenant_gateways (
+            location_id,
+            gateway_type,
+            mode,
+            is_active,
+            config_test,
+            config_live,
+            display_name
+        )
+        SELECT
+            t.location_id,
+            'recurrente',
+            COALESCE(NULLIF(t.mode, ''), 'test'),
+            CASE WHEN t.is_active = 1 THEN 1 ELSE 0 END,
+            json_object(
+                'publicKey', COALESCE(t.recurrente_public_key, ''),
+                'secretKey', COALESCE(t.recurrente_secret_key, '')
+            ),
+            json_object(
+                'publicKey', COALESCE(t.recurrente_public_key_live, ''),
+                'secretKey', COALESCE(t.recurrente_secret_key_live, '')
+            ),
+            COALESCE(t.business_name, '')
+        FROM tenants t
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM tenant_gateways g
+            WHERE g.location_id = t.location_id
+              AND g.gateway_type = 'recurrente'
+        )`
+    ).run();
+}
+
+export async function listTenantGateways(db: D1Database, locationId: string): Promise<TenantGateway[]> {
+    await ensureTenantGatewaysTable(db);
+    const { results } = await db
+        .prepare('SELECT * FROM tenant_gateways WHERE location_id = ? ORDER BY created_at DESC')
+        .bind(locationId)
+        .all<TenantGateway>();
+    return results;
+}
+
+export async function upsertTenantGateway(
+    db: D1Database,
+    locationId: string,
+    gatewayType: GatewayType,
+    data: {
+        mode?: 'test' | 'live';
+        isActive?: boolean;
+        configTest?: GatewayCredentialSet;
+        configLive?: GatewayCredentialSet;
+        displayName?: string;
+    }
+): Promise<void> {
+    await ensureTenantGatewaysTable(db);
+
+    const existing = await db
+        .prepare('SELECT * FROM tenant_gateways WHERE location_id = ? AND gateway_type = ?')
+        .bind(locationId, gatewayType)
+        .first<TenantGateway>();
+
+    if (existing) {
+        const sets: string[] = [];
+        const values: (string | number)[] = [];
+
+        if (data.mode !== undefined) {
+            sets.push('mode = ?');
+            values.push(data.mode);
+        }
+        if (data.isActive !== undefined) {
+            sets.push('is_active = ?');
+            values.push(data.isActive ? 1 : 0);
+        }
+        if (data.configTest !== undefined) {
+            sets.push('config_test = ?');
+            values.push(JSON.stringify(data.configTest));
+        }
+        if (data.configLive !== undefined) {
+            sets.push('config_live = ?');
+            values.push(JSON.stringify(data.configLive));
+        }
+        if (data.displayName !== undefined) {
+            sets.push('display_name = ?');
+            values.push(data.displayName);
+        }
+
+        if (sets.length === 0) {
+            return;
+        }
+
+        sets.push("updated_at = datetime('now')");
+        values.push(locationId, gatewayType);
+
+        await db
+            .prepare(`UPDATE tenant_gateways SET ${sets.join(', ')} WHERE location_id = ? AND gateway_type = ?`)
+            .bind(...values)
+            .run();
+    } else {
+        await db
+            .prepare(
+                `INSERT INTO tenant_gateways (
+                    location_id,
+                    gateway_type,
+                    mode,
+                    is_active,
+                    config_test,
+                    config_live,
+                    display_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+                locationId,
+                gatewayType,
+                data.mode || 'test',
+                data.isActive ? 1 : 0,
+                JSON.stringify(data.configTest || {}),
+                JSON.stringify(data.configLive || {}),
+                data.displayName || ''
+            )
+            .run();
+    }
+
+    // Business rule (phase 1): enforce 0..1 active gateway at backend level.
+    if (data.isActive === true) {
+        await db.prepare(
+            `UPDATE tenant_gateways
+             SET is_active = 0, updated_at = datetime('now')
+             WHERE location_id = ? AND gateway_type <> ? AND is_active = 1`
+        ).bind(locationId, gatewayType).run();
+    }
+}
+
+export async function setActiveGateway(
+    db: D1Database,
+    locationId: string,
+    gatewayType: GatewayType | null
+): Promise<void> {
+    await ensureTenantGatewaysTable(db);
+
+    await db.prepare(
+        `UPDATE tenant_gateways
+         SET is_active = 0, updated_at = datetime('now')
+         WHERE location_id = ? AND is_active = 1`
+    ).bind(locationId).run();
+
+    if (!gatewayType) {
+        return;
+    }
+
+    await db.prepare(
+        `UPDATE tenant_gateways
+         SET is_active = 1, updated_at = datetime('now')
+         WHERE location_id = ? AND gateway_type = ?`
+    ).bind(locationId, gatewayType).run();
+}
+
+export async function getActiveGateway(db: D1Database, locationId: string): Promise<TenantGateway | null> {
+    await ensureTenantGatewaysTable(db);
+
+    const activeGateway = await db
+        .prepare(
+            `SELECT *
+             FROM tenant_gateways
+             WHERE location_id = ? AND is_active = 1
+             ORDER BY updated_at DESC
+             LIMIT 1`
+        )
+        .bind(locationId)
+        .first<TenantGateway>();
+
+    if (activeGateway) {
+        return activeGateway;
+    }
+
+    const anyGateway = await db
+        .prepare('SELECT id FROM tenant_gateways WHERE location_id = ? LIMIT 1')
+        .bind(locationId)
+        .first<{ id: number }>();
+
+    if (anyGateway) {
+        return null;
+    }
+
+    // Legacy fallback: keep old tenants behavior functional while callers migrate.
+    const legacyTenant = await db
+        .prepare('SELECT * FROM tenants WHERE location_id = ? AND is_active = 1 LIMIT 1')
+        .bind(locationId)
+        .first<Tenant>();
+
+    if (!legacyTenant) {
+        return null;
+    }
+
+    const testConfig = JSON.stringify({
+        publicKey: legacyTenant.recurrente_public_key || '',
+        secretKey: legacyTenant.recurrente_secret_key || '',
+    });
+    const liveConfig = JSON.stringify({
+        publicKey: legacyTenant.recurrente_public_key_live || '',
+        secretKey: legacyTenant.recurrente_secret_key_live || '',
+    });
+
+    return {
+        id: 0,
+        location_id: legacyTenant.location_id,
+        gateway_type: 'recurrente',
+        mode: legacyTenant.mode || 'test',
+        is_active: legacyTenant.is_active,
+        config_test: testConfig,
+        config_live: liveConfig,
+        display_name: legacyTenant.business_name || '',
+        created_at: legacyTenant.created_at,
+        updated_at: legacyTenant.updated_at,
+    };
+}
+
+export function getGatewayActiveCredentials(gateway: TenantGateway): GatewayCredentialSet {
+    const testCfg = parseGatewayConfig(gateway.config_test);
+    const liveCfg = parseGatewayConfig(gateway.config_live);
+    if (gateway.mode === 'live') {
+        return liveCfg;
+    }
+    return testCfg;
 }

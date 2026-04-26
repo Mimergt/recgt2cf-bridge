@@ -25,6 +25,30 @@ export interface Tenant {
     updated_at: string;
 }
 
+export type GatewayType = 'recurrente' | 'cybersource';
+
+export interface GatewayCredentialSet {
+    publicKey?: string;
+    secretKey?: string;
+    merchantId?: string;
+    apiKeyId?: string;
+    secretKeyId?: string;
+    [key: string]: unknown;
+}
+
+export interface TenantGateway {
+    id: number;
+    location_id: string;
+    gateway_type: GatewayType;
+    mode: 'test' | 'live';
+    is_active: number;
+    config_test: string;
+    config_live: string;
+    display_name: string;
+    created_at: string;
+    updated_at: string;
+}
+
 // ─── Transactions ───────────────────────────────────────────
 export interface Transaction {
     id: number;

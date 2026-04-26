@@ -47,6 +47,10 @@ import {
 	handleListTenantGroups,
 	handleCreateTenantGroup,
 	handleAssignTenantGroup,
+	handleListGateways,
+	handleUpsertGateway,
+	handleSetActiveGateway,
+	handleDeleteGateway,
 } from './admin';
 import { upsertGhlToken, getGhlToken, getValidGhlToken, getExpiringTokens, refreshGhlToken, getTenant, getSetting } from './db';
 
@@ -301,6 +305,27 @@ router.get('/admin/tenants', async (request, env, params) => {
 	const denied = requireAdmin(request, env);
 	if (denied) return denied;
 	return handleListTenants(request, env, params);
+});
+// ─── Gateway Management (Point 1 / Phase 1) ──────────────
+router.get('/admin/gateways', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleListGateways(request, env, params);
+});
+router.post('/admin/gateways', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleUpsertGateway(request, env, params);
+});
+router.post('/admin/gateways/set-active', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleSetActiveGateway(request, env, params);
+});
+router.delete('/admin/gateways', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleDeleteGateway(request, env, params);
 });
 router.get('/admin/logs', async (request, env) => {
 	const denied = requireAdmin(request, env);

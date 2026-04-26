@@ -1046,3 +1046,134 @@ function showToast(msg, type) {
 function escapeHtml(str: string): string {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
+
+// ─── Gateway Admin Handlers (Point 1 / Phase 1) ───────────────────────────
+
+import {
+    listTenantGateways,
+    upsertTenantGateway,
+    setActiveGateway,
+    ensureTenantGatewaysTable,
+} from './db';
+import type { GatewayType } from './types';
+
+/**
+ * GET /admin/gateways?locationId=X
+ * List all configured gateways for a sub-account.
+ */
+export async function handleListGateways(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    const locationId = (params.get('locationId') || '').trim();
+    if (!locationId) return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+
+    const gateways = await listTenantGateways(env.DB, locationId);
+    return jsonResponse({ success: true, gateways });
+}
+
+/**
+ * POST /admin/gateways
+ * Create or update a gateway for a sub-account.
+ * Body: { locationId, gatewayType, mode?, configTest?, configLive?, displayName? }
+ */
+export async function handleUpsertGateway(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    const body = await request.json<{
+        locationId?: string;
+        gatewayType?: string;
+        mode?: 'test' | 'live';
+        configTest?: Record<string, unknown>;
+        configLive?: Record<string, unknown>;
+        displayName?: string;
+    }>();
+
+    const locationId = (body.locationId || '').trim();
+    const rawType = (body.gatewayType || '').trim().toLowerCase();
+
+    if (!locationId) return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+    if (rawType !== 'recurrente' && rawType !== 'cybersource') {
+        return jsonResponse({ success: false, error: 'gatewayType must be recurrente or cybersource' }, 400);
+    }
+
+    const gatewayType = rawType as GatewayType;
+
+    await upsertTenantGateway(env.DB, locationId, gatewayType, {
+        mode: body.mode,
+        configTest: body.configTest,
+        configLive: body.configLive,
+        displayName: body.displayName,
+    });
+
+    return jsonResponse({ success: true, message: `Gateway ${gatewayType} saved for ${locationId}` });
+}
+
+/**
+ * POST /admin/gateways/set-active
+ * Set exactly one gateway as active for a sub-account (deactivates all others).
+ * Pass gatewayType: null to deactivate all.
+ * Body: { locationId, gatewayType: 'recurrente' | 'cybersource' | null }
+ */
+export async function handleSetActiveGateway(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    const body = await request.json<{
+        locationId?: string;
+        gatewayType?: string | null;
+    }>();
+
+    const locationId = (body.locationId || '').trim();
+    if (!locationId) return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+
+    const rawType = body.gatewayType ? String(body.gatewayType).trim().toLowerCase() : null;
+    if (rawType !== null && rawType !== 'recurrente' && rawType !== 'cybersource') {
+        return jsonResponse({ success: false, error: 'gatewayType must be recurrente, cybersource, or null' }, 400);
+    }
+
+    const gatewayType = rawType as GatewayType | null;
+    await setActiveGateway(env.DB, locationId, gatewayType);
+
+    const label = gatewayType ? `${gatewayType} activated` : 'all gateways deactivated';
+    return jsonResponse({ success: true, message: `${label} for ${locationId}` });
+}
+
+/**
+ * DELETE /admin/gateways
+ * Remove a gateway from a sub-account.
+ * Body or query: { locationId, gatewayType }
+ */
+export async function handleDeleteGateway(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    let locationId: string;
+    let rawType: string;
+
+    if (request.method === 'DELETE') {
+        const body = await request.json<{ locationId?: string; gatewayType?: string }>().catch((): { locationId?: string; gatewayType?: string } => ({}));
+        locationId = (body.locationId || params.get('locationId') || '').trim();
+        rawType = (body.gatewayType || params.get('gatewayType') || '').trim().toLowerCase();
+    } else {
+        locationId = (params.get('locationId') || '').trim();
+        rawType = (params.get('gatewayType') || '').trim().toLowerCase();
+    }
+
+    if (!locationId) return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+    if (rawType !== 'recurrente' && rawType !== 'cybersource') {
+        return jsonResponse({ success: false, error: 'gatewayType must be recurrente or cybersource' }, 400);
+    }
+
+    await ensureTenantGatewaysTable(env.DB);
+    await env.DB.prepare(
+        `DELETE FROM tenant_gateways WHERE location_id = ? AND gateway_type = ?`
+    ).bind(locationId, rawType).run();
+
+    return jsonResponse({ success: true, message: `Gateway ${rawType} removed from ${locationId}` });
+}

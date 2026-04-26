@@ -94,3 +94,54 @@ CREATE TABLE IF NOT EXISTS tenant_group_assignments (
 CREATE INDEX IF NOT EXISTS idx_tenant_groups_source ON tenant_groups(source_type);
 CREATE INDEX IF NOT EXISTS idx_tenant_group_assignments_location_source ON tenant_group_assignments(location_id, source_type);
 CREATE INDEX IF NOT EXISTS idx_tenant_group_assignments_group ON tenant_group_assignments(group_id);
+
+-- Phase 1: multi-gateway infrastructure (backward compatible)
+CREATE TABLE IF NOT EXISTS tenant_gateways (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id TEXT NOT NULL,
+    gateway_type TEXT NOT NULL CHECK (gateway_type IN ('recurrente', 'cybersource')),
+    mode TEXT NOT NULL DEFAULT 'test' CHECK (mode IN ('test', 'live')),
+    is_active INTEGER NOT NULL DEFAULT 0,
+    config_test TEXT NOT NULL DEFAULT '{}',
+    config_live TEXT NOT NULL DEFAULT '{}',
+    display_name TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(location_id, gateway_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_gateways_location ON tenant_gateways(location_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_gateways_location_active ON tenant_gateways(location_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_tenant_gateways_type ON tenant_gateways(gateway_type);
+
+-- Transparent migration from legacy tenants -> recurrente gateway
+INSERT INTO tenant_gateways (
+    location_id,
+    gateway_type,
+    mode,
+    is_active,
+    config_test,
+    config_live,
+    display_name
+)
+SELECT
+    t.location_id,
+    'recurrente',
+    COALESCE(NULLIF(t.mode, ''), 'test'),
+    CASE WHEN t.is_active = 1 THEN 1 ELSE 0 END,
+    json_object(
+        'publicKey', COALESCE(t.recurrente_public_key, ''),
+        'secretKey', COALESCE(t.recurrente_secret_key, '')
+    ),
+    json_object(
+        'publicKey', COALESCE(t.recurrente_public_key_live, ''),
+        'secretKey', COALESCE(t.recurrente_secret_key_live, '')
+    ),
+    COALESCE(t.business_name, '')
+FROM tenants t
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM tenant_gateways g
+    WHERE g.location_id = t.location_id
+      AND g.gateway_type = 'recurrente'
+);
