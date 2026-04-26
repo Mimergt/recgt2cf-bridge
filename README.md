@@ -50,6 +50,19 @@ ghl-recurrente-bridge/
 | `GET` | `/admin/tenant?locationId=X` | Ver tenant específico |
 | `POST` | `/admin/tenant` | Crear/actualizar tenant |
 | `DELETE` | `/admin/tenant` | Eliminar tenant |
+| `GET` | `/admin/gateways?locationId=X` | Lista pasarelas configuradas por subcuenta |
+| `POST` | `/admin/gateways` | Crea/actualiza pasarela de una subcuenta |
+| `POST` | `/admin/gateways/set-active` | Activa una pasarela o deja sin activa |
+| `DELETE` | `/admin/gateways` | Elimina pasarela de una subcuenta |
+
+## Multi-gateway (Point 1)
+
+- Una subcuenta puede tener varias pasarelas configuradas.
+- Se permite 0 o 1 pasarela activa por subcuenta (nunca más de una).
+- El modo `test/live` es por pasarela.
+- La migración legacy es transparente: tenants existentes se backfillean automáticamente como `recurrente`.
+- En esta fase solo Recurrente es operativa en flujo de pago; otras pasarelas responden controladamente con `501`.
+- Si una subcuenta no tiene pasarela activa, los endpoints de pago responden controladamente con `409` y código `NO_ACTIVE_GATEWAY`.
 
 ## Desarrollo Local
 
@@ -120,6 +133,5 @@ curl -X POST https://tu-worker.workers.dev/admin/tenant \
 - [ ] Refunds via Recurrente API
 - [ ] Suscripciones/pagos recurrentes
 - [ ] Webhooks de Recurrente (confirmación asíncrona)
-- [ ] Dashboard admin (UI)
 - [ ] Rate limiting
 - [ ] Logs estructurados
