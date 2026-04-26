@@ -677,7 +677,9 @@ export async function handleAdminDashboard(
         </tr>
     `).join('');
 
-    const gatewayManagementRows = tenants.map((t: any) => {
+    const activeTenantsForGateways = tenants.filter((t: any) => t.is_active === 1);
+
+    const gatewayManagementRows = activeTenantsForGateways.map((t: any) => {
         const tenantName = t.business_name || t.location_id;
         const gateways = gatewaysByLocation.get(t.location_id) || [];
         const gatewayBadges = gateways.length
@@ -689,13 +691,20 @@ export async function handleAdminDashboard(
                     ? '<span class="badge live">LIVE</span>'
                     : '<span class="badge test">TEST</span>';
                 const type = escapeHtml(g.gateway_type);
-                const label = escapeHtml(g.display_name || g.gateway_type);
+                const fallbackName = g.gateway_type === 'recurrente' ? 'RecurrenteGT' : g.gateway_type;
+                const label = escapeHtml(g.display_name || fallbackName);
                 return `<div style="margin-bottom:6px;"><strong>${label}</strong> <small class="loc-id">(${type})</small> ${modeBadge} ${activeBadge}</div>`;
             }).join('')
             : '<span class="badge warn">Sin pasarelas configuradas</span>';
 
-        const hasRecurrente = gateways.some((g) => g.gateway_type === 'recurrente');
-        const hasCybersource = gateways.some((g) => g.gateway_type === 'cybersource');
+        const actionButtons = gateways.length
+            ? gateways.map((g) => {
+                const fallbackName = g.gateway_type === 'recurrente' ? 'RecurrenteGT' : g.gateway_type;
+                const label = escapeHtml(g.display_name || fallbackName);
+                const isCurrentActive = g.is_active === 1;
+                return `<button class="btn ${isCurrentActive ? 'btn-generate' : 'btn-success'}" ${isCurrentActive ? 'disabled' : ''} onclick="setGatewayActive('${escapeHtml(t.location_id)}', '${escapeHtml(g.gateway_type)}')">${isCurrentActive ? 'Activa: ' : 'Activar '}${label}</button>`;
+            }).join('')
+            : '<span class="badge off">Sin pasarelas para activar</span>';
 
         return `
         <tr>
@@ -706,8 +715,7 @@ export async function handleAdminDashboard(
             <td>${gatewayBadges}</td>
             <td>
                 <div class="inline-tools" style="margin:0;">
-                    <button class="btn btn-success" ${hasRecurrente ? '' : 'disabled'} onclick="setGatewayActive('${escapeHtml(t.location_id)}', 'recurrente')">Activar Recurrente</button>
-                    <button class="btn btn-success" ${hasCybersource ? '' : 'disabled'} onclick="setGatewayActive('${escapeHtml(t.location_id)}', 'cybersource')">Activar CyberSource</button>
+                    ${actionButtons}
                     <button class="btn btn-danger" onclick="setGatewayActive('${escapeHtml(t.location_id)}', null)">Sin activa</button>
                 </div>
             </td>
@@ -726,6 +734,11 @@ export async function handleAdminDashboard(
     .container { max-width: 960px; margin: 0 auto; }
     h1 { font-size: 1.5rem; margin-bottom: 8px; color: #38bdf8; }
     .subtitle { color: #94a3b8; margin-bottom: 24px; font-size: 0.9rem; }
+    .tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+    .tab-btn { background: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 8px; padding: 10px 14px; cursor: pointer; font-weight: 600; }
+    .tab-btn.active { color: #e2e8f0; border-color: #38bdf8; box-shadow: inset 0 0 0 1px #38bdf8; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
     .stats { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
     .stat-card { background: #1e293b; border-radius: 8px; padding: 16px 20px; flex: 1; min-width: 140px; }
     .stat-card .num { font-size: 1.8rem; font-weight: 700; color: #38bdf8; }
@@ -774,6 +787,12 @@ export async function handleAdminDashboard(
     <h1>EPICPay — Gestión de Sub-cuentas</h1>
     <p class="subtitle">Autoriza o bloquea sub-cuentas para usar el procesador de pagos</p>
 
+    <div class="tabs">
+        <button id="tab-btn-operacion" class="tab-btn active" onclick="switchTab('operacion')">Operación</button>
+        <button id="tab-btn-gateways" class="tab-btn" onclick="switchTab('gateways')">Pasarelas</button>
+    </div>
+
+    <div id="tab-operacion" class="tab-pane active">
     <div class="stats">
         <div class="stat-card">
             <div class="num">${tenants.length}</div>
@@ -803,20 +822,6 @@ export async function handleAdminDashboard(
             <div class="num">${conflictCount}</div>
             <div class="label">Conflictos Woo+Código</div>
         </div>
-    </div>
-
-    <div class="section" style="margin-top:0;">
-        <h2>Pasarelas por sub-cuenta (Point 1)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Sub-cuenta</th>
-                    <th>Pasarelas configuradas</th>
-                    <th>Acciones de activación</th>
-                </tr>
-            </thead>
-            <tbody>${gatewayManagementRows || '<tr><td colspan="3" style="text-align:center;padding:24px;color:#94a3b8;">Sin sub-cuentas</td></tr>'}</tbody>
-        </table>
     </div>
 
     <div class="section" style="margin-top:0;">
@@ -943,12 +948,49 @@ export async function handleAdminDashboard(
             <tbody>${giftRowsHtml || '<tr><td colspan="6" style="text-align:center;padding:18px;color:#94a3b8;">Sin códigos todavía</td></tr>'}</tbody>
         </table>
     </div>
+    </div>
+
+    <div id="tab-gateways" class="tab-pane">
+        <div class="section" style="margin-top:0;">
+            <h2>Pasarelas por sub-cuenta activa (${activeTenantsForGateways.length})</h2>
+            <p class="subtitle" style="margin-bottom:12px;">Hoy la principal es RecurrenteGT. Aquí podrás activar la pasarela operativa por sub-cuenta y quedará lista para futuras pasarelas.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Sub-cuenta</th>
+                        <th>Pasarelas configuradas</th>
+                        <th>Acciones de activación</th>
+                    </tr>
+                </thead>
+                <tbody>${gatewayManagementRows || '<tr><td colspan="3" style="text-align:center;padding:24px;color:#94a3b8;">No hay sub-cuentas activas</td></tr>'}</tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <div id="toast" class="toast"></div>
 
 <script>
 const ADMIN_KEY = new URLSearchParams(location.search).get('adminKey') || '';
+
+function switchTab(tabName) {
+    const opPane = document.getElementById('tab-operacion');
+    const gwPane = document.getElementById('tab-gateways');
+    const opBtn = document.getElementById('tab-btn-operacion');
+    const gwBtn = document.getElementById('tab-btn-gateways');
+
+    if (tabName === 'gateways') {
+        opPane.classList.remove('active');
+        gwPane.classList.add('active');
+        opBtn.classList.remove('active');
+        gwBtn.classList.add('active');
+    } else {
+        gwPane.classList.remove('active');
+        opPane.classList.add('active');
+        gwBtn.classList.remove('active');
+        opBtn.classList.add('active');
+    }
+}
 
 async function toggleTenant(locationId, active) {
     const btn = event.target;
