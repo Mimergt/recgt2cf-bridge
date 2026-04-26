@@ -52,7 +52,16 @@ import {
 	handleSetActiveGateway,
 	handleDeleteGateway,
 } from './admin';
-import { upsertGhlToken, getGhlToken, getValidGhlToken, getExpiringTokens, refreshGhlToken, getTenant, getSetting } from './db';
+import {
+	upsertGhlToken,
+	getGhlToken,
+	getValidGhlToken,
+	getExpiringTokens,
+	refreshGhlToken,
+	getTenant,
+	getSetting,
+	ensureBridgeCoreSchema,
+} from './db';
 
 const router = new Router();
 
@@ -1179,9 +1188,11 @@ router.get('/', async (request, env) => {
 // ─── Export Worker ────────────────────────────────────────────
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
+		await ensureBridgeCoreSchema(env.DB);
 		return router.handle(request, env, ctx);
 	},
 	async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+		await ensureBridgeCoreSchema(env.DB);
 		ctx.waitUntil(processGhlPendingPayments(env));
 		ctx.waitUntil(refreshExpiringTokens(env));
 	},

@@ -1,5 +1,77 @@
 import type { Env, GatewayCredentialSet, GatewayType, Tenant, TenantGateway, Transaction } from './types';
 
+/**
+ * Ensure core bridge tables exist before endpoints that read from D1.
+ * This avoids hard failures in fresh/local environments where schema.sql was not applied yet.
+ */
+export async function ensureBridgeCoreSchema(db: D1Database): Promise<void> {
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS tenants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id TEXT NOT NULL UNIQUE,
+            recurrente_public_key TEXT NOT NULL,
+            recurrente_secret_key TEXT NOT NULL,
+            business_name TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`
+    ).run();
+
+    const tenantMigrations = [
+        "ALTER TABLE tenants ADD COLUMN recurrente_public_key_live TEXT DEFAULT ''",
+        "ALTER TABLE tenants ADD COLUMN recurrente_secret_key_live TEXT DEFAULT ''",
+        "ALTER TABLE tenants ADD COLUMN mode TEXT DEFAULT 'test'",
+    ];
+    for (const sql of tenantMigrations) {
+        try { await db.prepare(sql).run(); } catch {}
+    }
+
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS ghl_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id TEXT NOT NULL UNIQUE,
+            access_token TEXT NOT NULL,
+            refresh_token TEXT,
+            scopes TEXT,
+            expires_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`
+    ).run();
+
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id TEXT NOT NULL,
+            ghl_charge_id TEXT,
+            recurrente_checkout_id TEXT,
+            recurrente_payment_id TEXT,
+            amount INTEGER NOT NULL,
+            currency TEXT DEFAULT 'GTQ',
+            status TEXT DEFAULT 'pending',
+            meta TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`
+    ).run();
+
+    await db.prepare(
+        `CREATE TABLE IF NOT EXISTS bridge_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )`
+    ).run();
+
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tenants_location ON tenants(location_id)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_location ON transactions(location_id)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_ghl_charge ON transactions(ghl_charge_id)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_recurrente_checkout ON transactions(recurrente_checkout_id)').run();
+}
+
 // ─── Tenant Operations ─────────────────────────────────────
 
 /** Get tenant config by GHL locationId */
