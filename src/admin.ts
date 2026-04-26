@@ -5,8 +5,20 @@
  * In production, these should be protected with authentication.
  */
 
-import type { Env } from './types';
-import { getTenant, upsertTenant, listTenants, deleteTenant, toggleTenant, listTenantsWithTokens, getValidGhlToken } from './db';
+import type { Env, GatewayType } from './types';
+import {
+    getTenant,
+    upsertTenant,
+    listTenants,
+    deleteTenant,
+    toggleTenant,
+    listTenantsWithTokens,
+    getValidGhlToken,
+    listTenantGateways,
+    upsertTenantGateway,
+    setActiveGateway,
+    ensureTenantGatewaysTable,
+} from './db';
 import { jsonResponse } from './router';
 
 type WooSubscriptionInfo = {
@@ -444,6 +456,7 @@ export async function handleAdminDashboard(
 ): Promise<Response> {
     await ensureManualActivationsTable(env.DB);
     await ensureTenantGroupsTables(env.DB);
+    await ensureTenantGatewaysTable(env.DB);
 
     const dashboardParams = new URL(request.url).searchParams;
     const wooGroupFilter = (dashboardParams.get('wooGroup') || 'all').trim();
@@ -464,6 +477,19 @@ export async function handleAdminDashboard(
     const { results: assignmentRows } = await env.DB.prepare(
         'SELECT location_id, source_type, group_id FROM tenant_group_assignments'
     ).all<{ location_id: string; source_type: GroupSource; group_id: number }>();
+
+    const { results: gatewayRowsRaw } = await env.DB.prepare(
+        `SELECT location_id, gateway_type, mode, is_active, display_name
+         FROM tenant_gateways
+         ORDER BY location_id ASC, gateway_type ASC`
+    ).all<{ location_id: string; gateway_type: string; mode: string; is_active: number; display_name: string }>();
+
+    const gatewaysByLocation = new Map<string, Array<{ gateway_type: string; mode: string; is_active: number; display_name: string }>>();
+    for (const g of gatewayRowsRaw || []) {
+        const list = gatewaysByLocation.get(g.location_id) || [];
+        list.push(g);
+        gatewaysByLocation.set(g.location_id, list);
+    }
 
     const groupsById = new Map<number, TenantGroup>();
     const groupsBySource: Record<GroupSource, TenantGroup[]> = { woo: [], gift: [] };
@@ -651,6 +677,43 @@ export async function handleAdminDashboard(
         </tr>
     `).join('');
 
+    const gatewayManagementRows = tenants.map((t: any) => {
+        const tenantName = t.business_name || t.location_id;
+        const gateways = gatewaysByLocation.get(t.location_id) || [];
+        const gatewayBadges = gateways.length
+            ? gateways.map((g) => {
+                const activeBadge = g.is_active === 1
+                    ? '<span class="badge ok">Activa</span>'
+                    : '<span class="badge off">Inactiva</span>';
+                const modeBadge = g.mode === 'live'
+                    ? '<span class="badge live">LIVE</span>'
+                    : '<span class="badge test">TEST</span>';
+                const type = escapeHtml(g.gateway_type);
+                const label = escapeHtml(g.display_name || g.gateway_type);
+                return `<div style="margin-bottom:6px;"><strong>${label}</strong> <small class="loc-id">(${type})</small> ${modeBadge} ${activeBadge}</div>`;
+            }).join('')
+            : '<span class="badge warn">Sin pasarelas configuradas</span>';
+
+        const hasRecurrente = gateways.some((g) => g.gateway_type === 'recurrente');
+        const hasCybersource = gateways.some((g) => g.gateway_type === 'cybersource');
+
+        return `
+        <tr>
+            <td>
+                <strong>${escapeHtml(tenantName)}</strong>
+                <br><small class="loc-id">${escapeHtml(t.location_id)}</small>
+            </td>
+            <td>${gatewayBadges}</td>
+            <td>
+                <div class="inline-tools" style="margin:0;">
+                    <button class="btn btn-success" ${hasRecurrente ? '' : 'disabled'} onclick="setGatewayActive('${escapeHtml(t.location_id)}', 'recurrente')">Activar Recurrente</button>
+                    <button class="btn btn-success" ${hasCybersource ? '' : 'disabled'} onclick="setGatewayActive('${escapeHtml(t.location_id)}', 'cybersource')">Activar CyberSource</button>
+                    <button class="btn btn-danger" onclick="setGatewayActive('${escapeHtml(t.location_id)}', null)">Sin activa</button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -740,6 +803,20 @@ export async function handleAdminDashboard(
             <div class="num">${conflictCount}</div>
             <div class="label">Conflictos Woo+Código</div>
         </div>
+    </div>
+
+    <div class="section" style="margin-top:0;">
+        <h2>Pasarelas por sub-cuenta (Point 1)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Sub-cuenta</th>
+                    <th>Pasarelas configuradas</th>
+                    <th>Acciones de activación</th>
+                </tr>
+            </thead>
+            <tbody>${gatewayManagementRows || '<tr><td colspan="3" style="text-align:center;padding:24px;color:#94a3b8;">Sin sub-cuentas</td></tr>'}</tbody>
+        </table>
     </div>
 
     <div class="section" style="margin-top:0;">
@@ -944,6 +1021,25 @@ async function createGiftCode(assignNow) {
     }
 }
 
+async function setGatewayActive(locationId, gatewayType) {
+    try {
+        const res = await fetch('/admin/gateways/set-active?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locationId, gatewayType })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error activando pasarela: ' + (data.error || 'desconocido'), 'err');
+            return;
+        }
+        showToast(data.message || 'Pasarela actualizada', 'ok');
+        setTimeout(() => location.reload(), 700);
+    } catch {
+        showToast('Error de red activando pasarela', 'err');
+    }
+}
+
 function applyGroupFilters() {
     const wooGroup = (document.getElementById('wooGroupFilter').value || 'all');
     const giftGroup = (document.getElementById('giftGroupFilter').value || 'all');
@@ -1048,14 +1144,6 @@ function escapeHtml(str: string): string {
 }
 
 // ─── Gateway Admin Handlers (Point 1 / Phase 1) ───────────────────────────
-
-import {
-    listTenantGateways,
-    upsertTenantGateway,
-    setActiveGateway,
-    ensureTenantGatewaysTable,
-} from './db';
-import type { GatewayType } from './types';
 
 /**
  * GET /admin/gateways?locationId=X
