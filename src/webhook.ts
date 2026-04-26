@@ -1,6 +1,6 @@
 import type { Env } from './types';
 import { jsonResponse } from './router';
-import { getTenant } from './db';
+import { getActiveGateway, getGatewayActiveCredentials } from './db';
 import { createCheckout } from './recurrente';
 import { createTransaction, updateTransactionByChargeId } from './db';
 
@@ -33,17 +33,21 @@ export async function handleGhlWebhook(request: Request, env: Env): Promise<Resp
       return jsonResponse({ success: true, message: 'Webhook received but pre-creation disabled for this location' });
     }
 
-    // Find tenant credentials
-    const tenant = await getTenant(env.DB, locationId);
-    if (!tenant) {
-      return jsonResponse({ success: false, error: 'Tenant not configured for this location' }, 404);
+    // Resolve active gateway for this sub-account (legacy tenants fallback handled in db.ts)
+    const activeGateway = await getActiveGateway(env.DB, locationId);
+    if (!activeGateway) {
+      return jsonResponse({ success: false, error: 'No active gateway configured for this location', code: 'NO_ACTIVE_GATEWAY' }, 409);
     }
+    if (activeGateway.gateway_type !== 'recurrente') {
+      return jsonResponse({ success: false, error: `Gateway ${activeGateway.gateway_type} not yet supported`, code: 'GATEWAY_NOT_IMPLEMENTED' }, 501);
+    }
+    const gatewayCreds = getGatewayActiveCredentials(activeGateway);
 
     // Create Recurrente checkout
     const checkout = await createCheckout(
       {
-        publicKey: tenant.recurrente_public_key,
-        secretKey: tenant.recurrente_secret_key,
+        publicKey: String(gatewayCreds.publicKey || ''),
+        secretKey: String(gatewayCreds.secretKey || ''),
       },
       {
         amount_in_cents: Math.round(Number(amount) * 100),

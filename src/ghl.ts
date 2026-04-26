@@ -17,7 +17,16 @@ import type { Env, GHLQueryAction } from './types';
 import { getTenant } from './db';
 import { getValidGhlToken, getTransactionByCheckoutId, updateTransactionByCheckout } from './db';
 import { createCheckout, getCheckoutStatus, toCents } from './recurrente';
-import { createTransaction, getTransactionByChargeId, updateTransactionByChargeId, getActiveKeys, getSetting, getGhlPendingTransactions } from './db';
+import {
+  createTransaction,
+  getTransactionByChargeId,
+  updateTransactionByChargeId,
+  getActiveKeys,
+  getSetting,
+  getGhlPendingTransactions,
+  getActiveGateway,
+  getGatewayActiveCredentials,
+} from './db';
 import { jsonResponse, htmlResponse } from './router';
 
 // ─── paymentsUrl Handler ────────────────────────────────────
@@ -1412,14 +1421,38 @@ export async function handleCreateCheckout(
         }, 400);
     }
 
-    // 1. Look up tenant credentials
-    const tenant = await getTenant(env.DB, finalLocationId);
-    if (!tenant) {
+    // 1. Resolve active gateway for the sub-account (legacy tenants fallback handled in db.ts)
+    const activeGateway = await getActiveGateway(env.DB, finalLocationId);
+    if (!activeGateway) {
+      const legacyTenant = await getTenant(env.DB, finalLocationId);
+      if (!legacyTenant) {
         return jsonResponse(
-            { success: false, error: `No Recurrente configuration found for location: ${finalLocationId}` },
-            404
+          { success: false, error: `No Recurrente configuration found for location: ${finalLocationId}` },
+          404
         );
+      }
+      return jsonResponse(
+        {
+          success: false,
+          error: `No active gateway configured for location: ${finalLocationId}`,
+          code: 'NO_ACTIVE_GATEWAY',
+        },
+        409
+      );
     }
+
+    if (activeGateway.gateway_type !== 'recurrente') {
+      return jsonResponse(
+        {
+          success: false,
+          error: `Gateway ${activeGateway.gateway_type} is not operational yet in this phase`,
+          code: 'GATEWAY_NOT_IMPLEMENTED',
+        },
+        501
+      );
+    }
+
+    const gatewayCreds = getGatewayActiveCredentials(activeGateway);
 
     // Resolve product name from invoice/order if still default
     if (!finalDescription || finalDescription === 'Pago GHL' || isPlaceholder(finalDescription)) {
@@ -1452,7 +1485,7 @@ export async function handleCreateCheckout(
             console.error('[createCheckout] Failed to resolve product name:', e);
         }
         // Prefix with business name
-        const bizName = tenant.business_name;
+        const bizName = activeGateway.display_name;
         if (bizName && finalDescription && !finalDescription.startsWith(bizName)) {
             finalDescription = bizName + ' - ' + finalDescription;
         } else if (bizName && (!finalDescription || finalDescription === 'Pago GHL')) {
@@ -1468,7 +1501,10 @@ export async function handleCreateCheckout(
 
     // 3. Create Recurrente checkout
     const checkout = await createCheckout(
-        getActiveKeys(tenant),
+      {
+        publicKey: String(gatewayCreds.publicKey || ''),
+        secretKey: String(gatewayCreds.secretKey || ''),
+      },
         {
             amount_in_cents: toCents(finalAmount),
             currency: body.currency || 'GTQ',
@@ -1783,11 +1819,8 @@ export async function handleQueryUrl(
             return jsonResponse({ success: false });
         }
 
-        const tenant = await getTenant(env.DB, locationId);
-        if (!tenant) return jsonResponse({ success: false, error: 'Tenant not found' }, 404);
-
         switch (type) {
-          case 'ensure_checkout': return ensureCheckoutForLocation(request, env, tenant, body);
+          case 'ensure_checkout': return ensureCheckoutForLocation(request, env, body);
           case 'refund': return jsonResponse({ success: false, error: 'Refunds not yet implemented' }, 501);
           case 'subscription': return jsonResponse({ success: false, error: 'Subscriptions not yet implemented' }, 501);
           default: return jsonResponse({ success: false, error: `Unknown action type: ${type}` }, 400);
@@ -1798,9 +1831,22 @@ export async function handleQueryUrl(
     }
 }
 
-async function ensureCheckoutForLocation(request: Request, env: Env, tenant: any, body: any): Promise<Response> {
+async function ensureCheckoutForLocation(request: Request, env: Env, body: any): Promise<Response> {
     const locationId = body.locationId;
     if (!locationId) return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+
+  const activeGateway = await getActiveGateway(env.DB, locationId);
+  if (!activeGateway) {
+    const legacyTenant = await getTenant(env.DB, locationId);
+    if (!legacyTenant) {
+      return jsonResponse({ success: false, error: 'Tenant not found' }, 404);
+    }
+    return jsonResponse({ success: false, error: 'No active gateway configured', code: 'NO_ACTIVE_GATEWAY' }, 409);
+  }
+  if (activeGateway.gateway_type !== 'recurrente') {
+    return jsonResponse({ success: false, error: `Gateway ${activeGateway.gateway_type} not yet supported`, code: 'GATEWAY_NOT_IMPLEMENTED' }, 501);
+  }
+  const gatewayCreds = getGatewayActiveCredentials(activeGateway);
 
     const tokenRow = await getValidGhlToken(env.DB, locationId, env.GHL_CLIENT_ID, env.GHL_CLIENT_SECRET);
     if (!tokenRow || !tokenRow.access_token) return jsonResponse({ success: false, error: 'No GHL token' }, 404);
@@ -1839,7 +1885,10 @@ async function ensureCheckoutForLocation(request: Request, env: Env, tenant: any
 
     try {
         const checkout = await createCheckout(
-            getActiveKeys(tenant),
+          {
+            publicKey: String(gatewayCreds.publicKey || ''),
+            secretKey: String(gatewayCreds.secretKey || ''),
+          },
             {
                 amount_in_cents: amountCents, currency, product_name: description,
                 success_url: `${new URL(request.url).origin}/payment/success?charge_id=${chargeId}`,

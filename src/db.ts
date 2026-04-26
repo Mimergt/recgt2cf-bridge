@@ -403,6 +403,16 @@ function parseGatewayConfig(raw: string): GatewayCredentialSet {
 }
 
 export async function ensureTenantGatewaysTable(db: D1Database): Promise<void> {
+    // Keep legacy tenants schema compatible before reading newer columns in backfill query.
+    const tenantMigrations = [
+        "ALTER TABLE tenants ADD COLUMN recurrente_public_key_live TEXT DEFAULT ''",
+        "ALTER TABLE tenants ADD COLUMN recurrente_secret_key_live TEXT DEFAULT ''",
+        "ALTER TABLE tenants ADD COLUMN mode TEXT DEFAULT 'test'",
+    ];
+    for (const sql of tenantMigrations) {
+        try { await db.prepare(sql).run(); } catch {}
+    }
+
     await db.prepare(
         `CREATE TABLE IF NOT EXISTS tenant_gateways (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
