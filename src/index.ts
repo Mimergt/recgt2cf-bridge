@@ -1067,6 +1067,8 @@ router.get('/', async (request, env) => {
 			var csTest = cs.test || {};
 			var csLive = cs.live || {};
 			var activeGatewayType = (tenant && tenant.active_gateway_type) || null;
+      var isRecurrenteActive = activeGatewayType === 'recurrente';
+      var isCybersourceActive = activeGatewayType === 'cybersource';
       var bizName = (tenant && tenant.business_name) || '';
 
       // Sub-account header
@@ -1075,119 +1077,108 @@ router.get('/', async (request, env) => {
         '<span class="loc-id">' + (locationId || '') + '</span>' +
         '</div>';
 
-      // --- Test keys section ---
-      html += '<div class="section-test">' +
-        '<h3>Llaves de Prueba (Test)</h3>';
+			if (!activeGatewayType) {
+				html += '<div class="alert error">Esta sub-cuenta no tiene una pasarela activa asignada desde el admin. Actívala en el admin para mostrar su configuración aquí.</div>';
+			} else if (isRecurrenteActive) {
+				html += '<div class="section-test">' +
+					'<h3>Llaves de Prueba (Test)</h3>';
 
-      if (hasTestKeys) {
-        html += '<div class="key-display" id="displayTest">' +
-          '<label>Clave Pública (Test)</label>' +
-          '<div class="masked-val">' + pkTest + '</div>' +
-          '<label>Clave Secreta (Test)</label>' +
-          '<div class="masked-val">' + skTest + '</div>' +
-          '<button type="button" class="btn-edit" onclick="window.editKeys(&#39;test&#39;)">Editar llaves</button>' +
-          '</div>';
-        html += '<div class="key-edit" id="editTest" style="display:none">' +
-          '<label>Public Key (Test)</label>' +
-          '<input id="pkTest" placeholder="pk_test_xxx" />' +
-          '<label>Secret Key (Test)</label>' +
-          '<input id="skTest" placeholder="sk_test_xxx" />' +
-          '</div>';
-      } else {
-        html += '<label>Public Key (Test)</label>' +
-          '<input id="pkTest" placeholder="pk_test_xxx" />' +
-          '<label>Secret Key (Test)</label>' +
-          '<input id="skTest" placeholder="sk_test_xxx" />';
-      }
-      html += '</div>';
+				if (hasTestKeys) {
+					html += '<div class="key-display" id="displayTest">' +
+						'<label>Clave Pública (Test)</label>' +
+						'<div class="masked-val">' + pkTest + '</div>' +
+						'<label>Clave Secreta (Test)</label>' +
+						'<div class="masked-val">' + skTest + '</div>' +
+						'<button type="button" class="btn-edit" onclick="window.editKeys(&#39;test&#39;)">Editar llaves</button>' +
+						'</div>';
+					html += '<div class="key-edit" id="editTest" style="display:none">' +
+						'<label>Public Key (Test)</label>' +
+						'<input id="pkTest" placeholder="pk_test_xxx" />' +
+						'<label>Secret Key (Test)</label>' +
+						'<input id="skTest" placeholder="sk_test_xxx" />' +
+						'</div>';
+				} else {
+					html += '<label>Public Key (Test)</label>' +
+						'<input id="pkTest" placeholder="pk_test_xxx" />' +
+						'<label>Secret Key (Test)</label>' +
+						'<input id="skTest" placeholder="sk_test_xxx" />';
+				}
+				html += '</div>';
 
-      // --- Live toggle ---
-      html += '<div class="toggle-row">' +
-        '<label class="switch"><input type="checkbox" id="modeToggle"' + (mode === 'live' ? ' checked' : '') + '><span class="slider"></span></label>' +
-        '<label>Modo LIVE <span id="modeBadge" class="mode-badge ' + mode + '">' + mode.toUpperCase() + '</span></label>' +
-        '</div>';
+				html += '<div class="toggle-row">' +
+					'<label class="switch"><input type="checkbox" id="modeToggle"' + (mode === 'live' ? ' checked' : '') + '><span class="slider"></span></label>' +
+					'<label>Modo LIVE <span id="modeBadge" class="mode-badge ' + mode + '">' + mode.toUpperCase() + '</span></label>' +
+					'</div>';
 
-      // --- Live keys section ---
-      html += '<div class="section-live" id="liveSection" style="display:' + (mode === 'live' ? 'block' : 'none') + '">' +
-        '<h3>Llaves de Producción (Live)</h3>';
+				html += '<div class="section-live" id="liveSection" style="display:' + (mode === 'live' ? 'block' : 'none') + '">' +
+					'<h3>Llaves de Producción (Live)</h3>';
 
-      if (hasLiveKeys) {
-        html += '<div class="key-display" id="displayLive">' +
-          '<label>Clave Pública (Live)</label>' +
-          '<div class="masked-val">' + pkLive + '</div>' +
-          '<label>Clave Secreta (Live)</label>' +
-          '<div class="masked-val">' + skLive + '</div>' +
-          '<button type="button" class="btn-edit" onclick="window.editKeys(&#39;live&#39;)">Editar llaves</button>' +
-          '</div>';
-        html += '<div class="key-edit" id="editLive" style="display:none">' +
-          '<label>Public Key (Live)</label>' +
-          '<input id="pkLive" placeholder="pk_live_xxx" />' +
-          '<label>Secret Key (Live)</label>' +
-          '<input id="skLive" placeholder="sk_live_xxx" />' +
-          '</div>';
-      } else {
-        html += '<label>Public Key (Live)</label>' +
-          '<input id="pkLive" placeholder="pk_live_xxx" />' +
-          '<label>Secret Key (Live)</label>' +
-          '<input id="skLive" placeholder="sk_live_xxx" />';
-      }
-      html += '</div>';
+				if (hasLiveKeys) {
+					html += '<div class="key-display" id="displayLive">' +
+						'<label>Clave Pública (Live)</label>' +
+						'<div class="masked-val">' + pkLive + '</div>' +
+						'<label>Clave Secreta (Live)</label>' +
+						'<div class="masked-val">' + skLive + '</div>' +
+						'<button type="button" class="btn-edit" onclick="window.editKeys(&#39;live&#39;)">Editar llaves</button>' +
+						'</div>';
+					html += '<div class="key-edit" id="editLive" style="display:none">' +
+						'<label>Public Key (Live)</label>' +
+						'<input id="pkLive" placeholder="pk_live_xxx" />' +
+						'<label>Secret Key (Live)</label>' +
+						'<input id="skLive" placeholder="sk_live_xxx" />' +
+						'</div>';
+				} else {
+					html += '<label>Public Key (Live)</label>' +
+						'<input id="pkLive" placeholder="pk_live_xxx" />' +
+						'<label>Secret Key (Live)</label>' +
+						'<input id="skLive" placeholder="sk_live_xxx" />';
+				}
+				html += '</div>';
 
-      html += '<p class="note">Modo actual: <strong id="modeLabel">' + (mode === 'live' ? 'LIVE — se usan las llaves de producción' : 'TEST — se usan las llaves de prueba') + '</strong></p>';
-
-			html += '<div class="toggle-row">' +
-				'<label>Pasarela activa</label>' +
-				'<select id="activeGatewaySelect" style="margin-left:auto;min-width:180px;padding:8px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;">' +
-				'<option value=""' + (!activeGatewayType ? ' selected' : '') + '>Ninguna</option>' +
-				'<option value="recurrente"' + (activeGatewayType === 'recurrente' ? ' selected' : '') + '>RecurrenteGT</option>' +
-				'<option value="cybersource"' + (activeGatewayType === 'cybersource' ? ' selected' : '') + '>Neonet</option>' +
-				'</select>' +
-				'</div>';
-
-      html += '<button id="save">Guardar configuración</button>';
-      html += '<div id="validating" style="display:none;text-align:center;margin-top:12px;color:#94a3b8;font-size:0.85rem;">Validando llaves con Recurrente...</div>';
-
-			html += '<hr style="border-color:#334155;margin:20px 0;" />';
-			html += '<div class="section-test">' +
-				'<h3>Neonet / CyberSource (Sandbox/Live)</h3>' +
-				'<label>Modo Neonet</label>' +
-				'<select id="csMode" style="width:100%;padding:10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;">' +
-				'<option value="test"' + (csMode === 'test' ? ' selected' : '') + '>TEST</option>' +
-				'<option value="live"' + (csMode === 'live' ? ' selected' : '') + '>LIVE</option>' +
-				'</select>' +
-				'<p class="note">Test guardado: ' + ((cs && cs.has_test_keys) ? 'SÍ' : 'NO') + ' | Live guardado: ' + ((cs && cs.has_live_keys) ? 'SÍ' : 'NO') + '</p>' +
-				'<h4 style="margin:10px 0 6px;">Credenciales TEST</h4>' +
-				'<label>Merchant ID (test)</label><input id="csMerchantTest" placeholder="merchant_test" value="" />' +
-				'<small class="loc-id">Actual: ' + (csTest.merchantId || '-') + '</small>' +
-				'<label>API Key ID (test)</label><input id="csApiKeyTest" placeholder="api_key_id_test" value="" />' +
-				'<small class="loc-id">Actual: ' + (csTest.apiKeyId || '-') + '</small>' +
-				'<label>Shared Secret (test)</label><input id="csSecretTest" placeholder="shared_secret_base64_test" value="" />' +
-				'<small class="loc-id">Actual: ' + (csTest.sharedSecret || '-') + '</small>' +
-				'<label>API Host (test)</label><input id="csHostTest" placeholder="apitest.cybersource.com" value="' + (csTest.apiHost || 'apitest.cybersource.com') + '" />' +
-				'<h4 style="margin:14px 0 6px;">Credenciales LIVE</h4>' +
-				'<label>Merchant ID (live)</label><input id="csMerchantLive" placeholder="merchant_live" value="" />' +
-				'<small class="loc-id">Actual: ' + (csLive.merchantId || '-') + '</small>' +
-				'<label>API Key ID (live)</label><input id="csApiKeyLive" placeholder="api_key_id_live" value="" />' +
-				'<small class="loc-id">Actual: ' + (csLive.apiKeyId || '-') + '</small>' +
-				'<label>Shared Secret (live)</label><input id="csSecretLive" placeholder="shared_secret_base64_live" value="" />' +
-				'<small class="loc-id">Actual: ' + (csLive.sharedSecret || '-') + '</small>' +
-				'<label>API Host (live)</label><input id="csHostLive" placeholder="api.cybersource.com" value="' + (csLive.apiHost || 'api.cybersource.com') + '" />' +
-				'<button id="saveCybersource" style="margin-top:14px;">Guardar Neonet</button>' +
-				'<div id="validatingCs" style="display:none;text-align:center;margin-top:12px;color:#94a3b8;font-size:0.85rem;">Guardando configuración Neonet...</div>' +
-				'</div>';
+				html += '<p class="note">Modo actual: <strong id="modeLabel">' + (mode === 'live' ? 'LIVE — se usan las llaves de producción' : 'TEST — se usan las llaves de prueba') + '</strong></p>';
+				html += '<button id="save">Guardar configuración</button>';
+				html += '<div id="validating" style="display:none;text-align:center;margin-top:12px;color:#94a3b8;font-size:0.85rem;">Validando llaves con Recurrente...</div>';
+			} else if (isCybersourceActive) {
+				html += '<div class="section-test">' +
+					'<h3>Neonet / CyberSource (Sandbox/Live)</h3>' +
+					'<label>Modo Neonet</label>' +
+					'<select id="csMode" style="width:100%;padding:10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;">' +
+					'<option value="test"' + (csMode === 'test' ? ' selected' : '') + '>TEST</option>' +
+					'<option value="live"' + (csMode === 'live' ? ' selected' : '') + '>LIVE</option>' +
+					'</select>' +
+					'<p class="note">Test guardado: ' + ((cs && cs.has_test_keys) ? 'SÍ' : 'NO') + ' | Live guardado: ' + ((cs && cs.has_live_keys) ? 'SÍ' : 'NO') + '</p>' +
+					'<h4 style="margin:10px 0 6px;">Credenciales TEST</h4>' +
+					'<label>Merchant ID (test)</label><input id="csMerchantTest" placeholder="merchant_test" value="" />' +
+					'<small class="loc-id">Actual: ' + (csTest.merchantId || '-') + '</small>' +
+					'<label>API Key ID (test)</label><input id="csApiKeyTest" placeholder="api_key_id_test" value="" />' +
+					'<small class="loc-id">Actual: ' + (csTest.apiKeyId || '-') + '</small>' +
+					'<label>Shared Secret (test)</label><input id="csSecretTest" placeholder="shared_secret_base64_test" value="" />' +
+					'<small class="loc-id">Actual: ' + (csTest.sharedSecret || '-') + '</small>' +
+					'<label>API Host (test)</label><input id="csHostTest" placeholder="apitest.cybersource.com" value="' + (csTest.apiHost || 'apitest.cybersource.com') + '" />' +
+					'<h4 style="margin:14px 0 6px;">Credenciales LIVE</h4>' +
+					'<label>Merchant ID (live)</label><input id="csMerchantLive" placeholder="merchant_live" value="" />' +
+					'<small class="loc-id">Actual: ' + (csLive.merchantId || '-') + '</small>' +
+					'<label>API Key ID (live)</label><input id="csApiKeyLive" placeholder="api_key_id_live" value="" />' +
+					'<small class="loc-id">Actual: ' + (csLive.apiKeyId || '-') + '</small>' +
+					'<label>Shared Secret (live)</label><input id="csSecretLive" placeholder="shared_secret_base64_live" value="" />' +
+					'<small class="loc-id">Actual: ' + (csLive.sharedSecret || '-') + '</small>' +
+					'<label>API Host (live)</label><input id="csHostLive" placeholder="api.cybersource.com" value="' + (csLive.apiHost || 'api.cybersource.com') + '" />' +
+					'<button id="saveCybersource" style="margin-top:14px;">Guardar Neonet</button>' +
+					'<div id="validatingCs" style="display:none;text-align:center;margin-top:12px;color:#94a3b8;font-size:0.85rem;">Guardando configuración Neonet...</div>' +
+					'</div>';
+			}
       content.innerHTML = html;
 
-      // Toggle handler
-      document.getElementById('modeToggle').addEventListener('change', function() {
-        var isLive = this.checked;
-        document.getElementById('liveSection').style.display = isLive ? 'block' : 'none';
-        document.getElementById('modeBadge').className = 'mode-badge ' + (isLive ? 'live' : 'test');
-        document.getElementById('modeBadge').textContent = isLive ? 'LIVE' : 'TEST';
-        document.getElementById('modeLabel').innerHTML = isLive ? 'LIVE — se usan las llaves de producción' : 'TEST — se usan las llaves de prueba';
-      });
+			if (isRecurrenteActive) {
+				document.getElementById('modeToggle').addEventListener('change', function() {
+					var isLive = this.checked;
+					document.getElementById('liveSection').style.display = isLive ? 'block' : 'none';
+					document.getElementById('modeBadge').className = 'mode-badge ' + (isLive ? 'live' : 'test');
+					document.getElementById('modeBadge').textContent = isLive ? 'LIVE' : 'TEST';
+					document.getElementById('modeLabel').innerHTML = isLive ? 'LIVE — se usan las llaves de producción' : 'TEST — se usan las llaves de prueba';
+				});
 
-      // Save handler
-      document.getElementById('save').addEventListener('click', function() {
+				document.getElementById('save').addEventListener('click', function() {
         var btn = this;
         var isLive = document.getElementById('modeToggle').checked;
         var pkTestInput = document.getElementById('pkTest');
@@ -1219,8 +1210,6 @@ router.get('/', async (request, env) => {
         }
 
         var payload = { locationId: locationId, mode: isLive ? 'live' : 'test' };
-		var activeGatewaySelected = document.getElementById('activeGatewaySelect').value;
-		payload.activeGateway = activeGatewaySelected ? activeGatewaySelected : null;
         if (sendTestKeys) { payload.publicKey = pkt; payload.secretKey = skt; }
         if (sendLiveKeys && pkl && skl) { payload.publicKeyLive = pkl; payload.secretKeyLive = skl; }
 
@@ -1248,12 +1237,13 @@ router.get('/', async (request, env) => {
           document.getElementById('validating').style.display = 'none';
           setStatus(e.message || 'Error al guardar', 'error');
         });
-      });
+				});
+			}
 
-			document.getElementById('saveCybersource').addEventListener('click', function() {
+			if (isCybersourceActive) {
+				document.getElementById('saveCybersource').addEventListener('click', function() {
 				var btnCs = this;
 				var csModeValue = (document.getElementById('csMode').value || 'test').trim();
-				var activeGatewaySelected = document.getElementById('activeGatewaySelect').value;
 
 				var csMerchantTest = (document.getElementById('csMerchantTest').value || '').trim();
 				var csApiKeyTest = (document.getElementById('csApiKeyTest').value || '').trim();
@@ -1267,7 +1257,6 @@ router.get('/', async (request, env) => {
 
 				var payloadCs = {
 					locationId: locationId,
-					activeGateway: activeGatewaySelected ? activeGatewaySelected : null,
 					cybersource: {
 						mode: csModeValue
 					}
@@ -1323,7 +1312,8 @@ router.get('/', async (request, env) => {
 					document.getElementById('validatingCs').style.display = 'none';
 					setStatus(e.message || 'Error al guardar Neonet', 'error');
 				});
-			});
+				});
+			}
       oauthSection.style.display = 'none';
     }
 
