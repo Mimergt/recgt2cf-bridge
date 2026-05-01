@@ -51,6 +51,7 @@ import {
 	handleUpsertGateway,
 	handleSetActiveGateway,
 	handleDeleteGateway,
+	handleTestGatewayConnection,
 } from './admin';
 import {
 	upsertGhlToken,
@@ -330,6 +331,11 @@ router.post('/admin/gateways/set-active', async (request, env, params) => {
 	const denied = requireAdmin(request, env);
 	if (denied) return denied;
 	return handleSetActiveGateway(request, env, params);
+});
+router.post('/admin/gateways/test-connection', async (request, env, params) => {
+	const denied = requireAdmin(request, env);
+	if (denied) return denied;
+	return handleTestGatewayConnection(request, env, params);
 });
 router.delete('/admin/gateways', async (request, env, params) => {
 	const denied = requireAdmin(request, env);

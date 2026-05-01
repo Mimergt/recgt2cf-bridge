@@ -20,6 +20,7 @@ import {
     ensureTenantGatewaysTable,
 } from './db';
 import { jsonResponse } from './router';
+import { testCybersourceConnection } from './cybersource';
 
 type WooSubscriptionInfo = {
     active: boolean;
@@ -702,7 +703,8 @@ export async function handleAdminDashboard(
                 const fallbackName = g.gateway_type === 'recurrente' ? 'RecurrenteGT' : g.gateway_type;
                 const label = escapeHtml(g.display_name || fallbackName);
                 const isCurrentActive = g.is_active === 1;
-                return `<button class="btn ${isCurrentActive ? 'btn-generate' : 'btn-success'}" ${isCurrentActive ? 'disabled' : ''} onclick="setGatewayActive('${escapeHtml(t.location_id)}', '${escapeHtml(g.gateway_type)}')">${isCurrentActive ? 'Activa: ' : 'Activar '}${label}</button>`;
+                return `<button class="btn ${isCurrentActive ? 'btn-generate' : 'btn-success'}" ${isCurrentActive ? 'disabled' : ''} onclick="setGatewayActive('${escapeHtml(t.location_id)}', '${escapeHtml(g.gateway_type)}')">${isCurrentActive ? 'Activa: ' : 'Activar '}${label}</button>
+                <button class="btn" style="background:#334155;color:#e2e8f0;" onclick="testGatewayConnection('${escapeHtml(t.location_id)}', '${escapeHtml(g.gateway_type)}')">Probar conexión</button>`;
             }).join('')
             : '<span class="badge off">Sin pasarelas para activar</span>';
 
@@ -952,6 +954,27 @@ export async function handleAdminDashboard(
 
     <div id="tab-gateways" class="tab-pane">
         <div class="section" style="margin-top:0;">
+            <h2>Configurar Neonet (CyberSource)</h2>
+            <div class="row" style="grid-template-columns: 1fr 140px 1fr 1fr;">
+                <input id="neonetLocationId" placeholder="Location ID" />
+                <select id="neonetMode">
+                    <option value="test">Modo TEST</option>
+                    <option value="live">Modo LIVE</option>
+                </select>
+                <input id="neonetMerchantId" placeholder="Merchant ID" />
+                <input id="neonetApiKeyId" placeholder="API Key ID" />
+            </div>
+            <div class="row" style="grid-template-columns: 1fr 1fr auto auto;">
+                <input id="neonetSharedSecret" placeholder="Shared Secret (base64)" />
+                <input id="neonetApiHost" placeholder="Host API (opcional)" value="apitest.cybersource.com" />
+                <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;">
+                    <input type="checkbox" id="neonetActivate" /> Activar al guardar
+                </label>
+                <button class="btn btn-success" onclick="saveNeonetGateway()">Guardar Neonet</button>
+            </div>
+        </div>
+
+        <div class="section" style="margin-top:0;">
             <h2>Pasarelas por sub-cuenta activa (${activeTenantsForGateways.length})</h2>
             <p class="subtitle" style="margin-bottom:12px;">Hoy la principal es RecurrenteGT. Aquí podrás activar la pasarela operativa por sub-cuenta y quedará lista para futuras pasarelas.</p>
             <table>
@@ -1079,6 +1102,85 @@ async function setGatewayActive(locationId, gatewayType) {
         setTimeout(() => location.reload(), 700);
     } catch {
         showToast('Error de red activando pasarela', 'err');
+    }
+}
+
+async function saveNeonetGateway() {
+    const locationId = (document.getElementById('neonetLocationId').value || '').trim();
+    const mode = (document.getElementById('neonetMode').value || 'test').trim();
+    const merchantId = (document.getElementById('neonetMerchantId').value || '').trim();
+    const apiKeyId = (document.getElementById('neonetApiKeyId').value || '').trim();
+    const sharedSecret = (document.getElementById('neonetSharedSecret').value || '').trim();
+    const apiHost = (document.getElementById('neonetApiHost').value || '').trim();
+    const activate = !!document.getElementById('neonetActivate').checked;
+
+    if (!locationId || !merchantId || !apiKeyId || !sharedSecret) {
+        showToast('Faltan datos para guardar Neonet (locationId, merchantId, apiKeyId, sharedSecret)', 'err');
+        return;
+    }
+
+    const configPayload = {
+        merchantId,
+        apiKeyId,
+        sharedSecret,
+        apiHost: apiHost || 'apitest.cybersource.com',
+    };
+
+    const saveBody = {
+        locationId,
+        gatewayType: 'cybersource',
+        mode,
+        displayName: 'Neonet',
+        ...(mode === 'live' ? { configLive: configPayload } : { configTest: configPayload }),
+    };
+
+    try {
+        const saveRes = await fetch('/admin/gateways?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(saveBody),
+        });
+        const saveData = await saveRes.json();
+        if (!saveData.success) {
+            showToast('Error guardando Neonet: ' + (saveData.error || 'desconocido'), 'err');
+            return;
+        }
+
+        if (activate) {
+            const activateRes = await fetch('/admin/gateways/set-active?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ locationId, gatewayType: 'cybersource' }),
+            });
+            const activateData = await activateRes.json();
+            if (!activateData.success) {
+                showToast('Neonet guardado, pero no se pudo activar: ' + (activateData.error || 'desconocido'), 'err');
+                return;
+            }
+        }
+
+        showToast('Neonet guardado correctamente', 'ok');
+        setTimeout(() => location.reload(), 700);
+    } catch {
+        showToast('Error de red guardando Neonet', 'err');
+    }
+}
+
+async function testGatewayConnection(locationId, gatewayType) {
+    try {
+        const res = await fetch('/admin/gateways/test-connection?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locationId, gatewayType })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Conexión fallida: ' + (data.error || 'desconocido'), 'err');
+            return;
+        }
+        showToast(data.message || 'Conexión verificada', 'ok');
+    } catch {
+        showToast('Error de red probando conexión', 'err');
     }
 }
 
@@ -1306,4 +1408,87 @@ export async function handleDeleteGateway(
     ).bind(locationId, rawType).run();
 
     return jsonResponse({ success: true, message: `Gateway ${rawType} removed from ${locationId}` });
+}
+
+/**
+ * POST /admin/gateways/test-connection
+ * Test credentials for a configured gateway.
+ * Body: { locationId, gatewayType }
+ */
+export async function handleTestGatewayConnection(
+    request: Request,
+    env: Env,
+    params: URLSearchParams
+): Promise<Response> {
+    const body = await request.json<{ locationId?: string; gatewayType?: string }>();
+    const locationId = (body.locationId || '').trim();
+    const rawType = (body.gatewayType || '').trim().toLowerCase();
+
+    if (!locationId) return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+    if (rawType !== 'recurrente' && rawType !== 'cybersource') {
+        return jsonResponse({ success: false, error: 'gatewayType must be recurrente or cybersource' }, 400);
+    }
+
+    const gatewayType = rawType as GatewayType;
+    const gateways = await listTenantGateways(env.DB, locationId);
+    const gateway = gateways.find((g) => g.gateway_type === gatewayType);
+    if (!gateway) {
+        return jsonResponse({ success: false, error: `Gateway ${gatewayType} not configured for ${locationId}` }, 404);
+    }
+
+    let creds: Record<string, unknown> = {};
+    try {
+        creds = JSON.parse(gateway.mode === 'live' ? gateway.config_live : gateway.config_test) as Record<string, unknown>;
+    } catch {}
+
+    if (gatewayType === 'recurrente') {
+        const publicKey = String(creds.publicKey || '');
+        const secretKey = String(creds.secretKey || '');
+        if (!publicKey || !secretKey) {
+            return jsonResponse({ success: false, error: 'Recurrente keys missing for current mode' }, 400);
+        }
+
+        const testRes = await fetch('https://app.recurrente.com/api/checkouts', {
+            method: 'GET',
+            headers: {
+                'X-PUBLIC-KEY': publicKey,
+                'X-SECRET-KEY': secretKey,
+            },
+        });
+
+        if (testRes.ok) {
+            return jsonResponse({ success: true, message: `Recurrente connection OK (${gateway.mode.toUpperCase()})` });
+        }
+
+        const text = await testRes.text();
+        return jsonResponse({ success: false, error: `Recurrente rejected credentials (${testRes.status})`, detail: text }, 400);
+    }
+
+    const merchantId = String(creds.merchantId || '');
+    const apiKeyId = String(creds.apiKeyId || '');
+    const sharedSecret = String(creds.sharedSecret || '');
+    const apiHost = String(creds.apiHost || 'apitest.cybersource.com');
+
+    if (!merchantId || !apiKeyId || !sharedSecret) {
+        return jsonResponse({ success: false, error: 'Neonet/CyberSource credentials missing for current mode' }, 400);
+    }
+
+    const result = await testCybersourceConnection({ merchantId, apiKeyId, sharedSecret, apiHost });
+    if (!result.ok) {
+        return jsonResponse(
+            {
+                success: false,
+                error: result.message,
+                status: result.status,
+                response: result.body,
+            },
+            400
+        );
+    }
+
+    return jsonResponse({
+        success: true,
+        message: `Neonet/CyberSource connection OK (${gateway.mode.toUpperCase()})`,
+        status: result.status,
+    });
 }
