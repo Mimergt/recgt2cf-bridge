@@ -698,14 +698,16 @@ export async function handleAdminDashboard(
             }).join('')
             : '<span class="badge warn">Sin pasarelas configuradas</span>';
 
-        const actionButtons = gateways.length
-            ? gateways.map((g) => {
-                const fallbackName = g.gateway_type === 'recurrente' ? 'RecurrenteGT' : g.gateway_type;
-                const label = escapeHtml(g.display_name || fallbackName);
-                const isCurrentActive = g.is_active === 1;
-                return `<button class="btn ${isCurrentActive ? 'btn-generate' : 'btn-success'}" ${isCurrentActive ? 'disabled' : ''} onclick="setGatewayActive('${escapeHtml(t.location_id)}', '${escapeHtml(g.gateway_type)}')">${isCurrentActive ? 'Activa: ' : 'Activar '}${label}</button>
-                <button class="btn" style="background:#334155;color:#e2e8f0;" onclick="testGatewayConnection('${escapeHtml(t.location_id)}', '${escapeHtml(g.gateway_type)}')">Probar conexión</button>`;
-            }).join('')
+        const selectorHtml = gateways.length
+            ? (() => {
+                const options = ['<option value="">Sin activa</option>'];
+                for (const g of gateways) {
+                    const fallbackName = g.gateway_type === 'recurrente' ? 'RecurrenteGT' : g.gateway_type;
+                    const label = escapeHtml(g.display_name || fallbackName);
+                    options.push(`<option value="${escapeHtml(g.gateway_type)}" ${g.is_active === 1 ? 'selected' : ''}>${label}</option>`);
+                }
+                return `<select class="group-select gateway-active-select">${options.join('')}</select>`;
+            })()
             : '<span class="badge off">Sin pasarelas para activar</span>';
 
         return `
@@ -717,8 +719,9 @@ export async function handleAdminDashboard(
             <td>${gatewayBadges}</td>
             <td>
                 <div class="inline-tools" style="margin:0;">
-                    ${actionButtons}
-                    <button class="btn btn-danger" onclick="setGatewayActive('${escapeHtml(t.location_id)}', null)">Sin activa</button>
+                    ${selectorHtml}
+                    <button class="btn btn-success" onclick="saveSelectedGateway('${escapeHtml(t.location_id)}', this)">Guardar activa</button>
+                    <button class="btn" style="background:#334155;color:#e2e8f0;" onclick="testSelectedGateway('${escapeHtml(t.location_id)}', this)">Probar conexión</button>
                 </div>
             </td>
         </tr>`;
@@ -1103,6 +1106,57 @@ async function setGatewayActive(locationId, gatewayType) {
     } catch {
         showToast('Error de red activando pasarela', 'err');
     }
+}
+
+async function saveSelectedGateway(locationId, btnEl) {
+    var wrapper = btnEl && btnEl.parentElement ? btnEl.parentElement : null;
+    var select = wrapper ? wrapper.querySelector('.gateway-active-select') : null;
+    if (!select) {
+        showToast('No se encontró selector de pasarela', 'err');
+        return;
+    }
+
+    var gatewayType = (select.value || '').trim() || null;
+    btnEl.disabled = true;
+    var originalLabel = btnEl.textContent;
+    btnEl.textContent = 'Guardando...';
+
+    try {
+        const res = await fetch('/admin/gateways/set-active?adminKey=' + encodeURIComponent(ADMIN_KEY), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locationId, gatewayType })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error guardando pasarela activa: ' + (data.error || 'desconocido'), 'err');
+            return;
+        }
+        showToast(data.message || 'Pasarela activa actualizada', 'ok');
+        setTimeout(() => location.reload(), 700);
+    } catch {
+        showToast('Error de red guardando pasarela activa', 'err');
+    } finally {
+        btnEl.disabled = false;
+        btnEl.textContent = originalLabel || 'Guardar activa';
+    }
+}
+
+async function testSelectedGateway(locationId, btnEl) {
+    var wrapper = btnEl && btnEl.parentElement ? btnEl.parentElement : null;
+    var select = wrapper ? wrapper.querySelector('.gateway-active-select') : null;
+    if (!select) {
+        showToast('No se encontró selector de pasarela', 'err');
+        return;
+    }
+
+    var gatewayType = (select.value || '').trim();
+    if (!gatewayType) {
+        showToast('Selecciona una pasarela para probar conexión', 'err');
+        return;
+    }
+
+    await testGatewayConnection(locationId, gatewayType);
 }
 
 async function saveNeonetGateway() {
