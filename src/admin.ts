@@ -711,9 +711,8 @@ export async function handleAdminDashboard(
             for (const meta of supportedGatewayTypes) {
                 const gateway = gatewaysByType.get(meta.type);
                 const isSelected = gateway ? gateway.is_active === 1 : false;
-                const disabledAttr = gateway ? '' : ' disabled';
                 const suffix = gateway ? '' : ' (no configurada)';
-                options.push(`<option value="${escapeHtml(meta.type)}" ${isSelected ? 'selected' : ''}${disabledAttr}>${meta.label}${suffix}</option>`);
+                options.push(`<option value="${escapeHtml(meta.type)}" ${isSelected ? 'selected' : ''}>${meta.label}${suffix}</option>`);
             }
             return `<select class="group-select gateway-active-select">${options.join('')}</select>`;
         })();
@@ -965,27 +964,6 @@ export async function handleAdminDashboard(
 
     <div id="tab-gateways" class="tab-pane">
         <div class="section" style="margin-top:0;">
-            <h2>Configurar Neonet (CyberSource)</h2>
-            <div class="row" style="grid-template-columns: 1fr 140px 1fr 1fr;">
-                <input id="neonetLocationId" placeholder="Location ID" />
-                <select id="neonetMode">
-                    <option value="test">Modo TEST</option>
-                    <option value="live">Modo LIVE</option>
-                </select>
-                <input id="neonetMerchantId" placeholder="Merchant ID" />
-                <input id="neonetApiKeyId" placeholder="API Key ID" />
-            </div>
-            <div class="row" style="grid-template-columns: 1fr 1fr auto auto;">
-                <input id="neonetSharedSecret" placeholder="Shared Secret (base64)" />
-                <input id="neonetApiHost" placeholder="Host API (opcional)" value="apitest.cybersource.com" />
-                <label style="display:flex;align-items:center;gap:8px;color:#94a3b8;">
-                    <input type="checkbox" id="neonetActivate" /> Activar al guardar
-                </label>
-                <button class="btn btn-success" onclick="saveNeonetGateway()">Guardar Neonet</button>
-            </div>
-        </div>
-
-        <div class="section" style="margin-top:0;">
             <h2>Pasarelas por sub-cuenta (${tenantsForGateways.length})</h2>
             <p class="subtitle" style="margin-bottom:12px;">Hoy la principal es RecurrenteGT. Aquí puedes activar exactamente una pasarela por sub-cuenta y dejarla lista para futuras pasarelas.</p>
             <table>
@@ -1165,67 +1143,6 @@ async function testSelectedGateway(locationId, btnEl) {
     }
 
     await testGatewayConnection(locationId, gatewayType);
-}
-
-async function saveNeonetGateway() {
-    const locationId = (document.getElementById('neonetLocationId').value || '').trim();
-    const mode = (document.getElementById('neonetMode').value || 'test').trim();
-    const merchantId = (document.getElementById('neonetMerchantId').value || '').trim();
-    const apiKeyId = (document.getElementById('neonetApiKeyId').value || '').trim();
-    const sharedSecret = (document.getElementById('neonetSharedSecret').value || '').trim();
-    const apiHost = (document.getElementById('neonetApiHost').value || '').trim();
-    const activate = !!document.getElementById('neonetActivate').checked;
-
-    if (!locationId || !merchantId || !apiKeyId || !sharedSecret) {
-        showToast('Faltan datos para guardar Neonet (locationId, merchantId, apiKeyId, sharedSecret)', 'err');
-        return;
-    }
-
-    const configPayload = {
-        merchantId,
-        apiKeyId,
-        sharedSecret,
-        apiHost: apiHost || 'apitest.cybersource.com',
-    };
-
-    const saveBody = {
-        locationId,
-        gatewayType: 'cybersource',
-        mode,
-        displayName: 'Neonet',
-        ...(mode === 'live' ? { configLive: configPayload } : { configTest: configPayload }),
-    };
-
-    try {
-        const saveRes = await fetch('/admin/gateways?adminKey=' + encodeURIComponent(ADMIN_KEY), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(saveBody),
-        });
-        const saveData = await saveRes.json();
-        if (!saveData.success) {
-            showToast('Error guardando Neonet: ' + (saveData.error || 'desconocido'), 'err');
-            return;
-        }
-
-        if (activate) {
-            const activateRes = await fetch('/admin/gateways/set-active?adminKey=' + encodeURIComponent(ADMIN_KEY), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ locationId, gatewayType: 'cybersource' }),
-            });
-            const activateData = await activateRes.json();
-            if (!activateData.success) {
-                showToast('Neonet guardado, pero no se pudo activar: ' + (activateData.error || 'desconocido'), 'err');
-                return;
-            }
-        }
-
-        showToast('Neonet guardado correctamente', 'ok');
-        setTimeout(() => location.reload(), 700);
-    } catch {
-        showToast('Error de red guardando Neonet', 'err');
-    }
 }
 
 async function testGatewayConnection(locationId, gatewayType) {

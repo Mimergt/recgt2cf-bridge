@@ -646,21 +646,20 @@ export async function setActiveGateway(
 ): Promise<void> {
     await ensureTenantGatewaysTable(db);
 
-    await db.prepare(
-        `UPDATE tenant_gateways
-         SET is_active = 0, updated_at = datetime('now')
-         WHERE location_id = ? AND is_active = 1`
-    ).bind(locationId).run();
-
-    if (!gatewayType) {
+    // If a gateway is selected for activation but not yet configured,
+    // create a placeholder row so selection from admin can define the active gateway first.
+    if (gatewayType) {
+        await upsertTenantGateway(db, locationId, gatewayType, {
+            isActive: true,
+        });
         return;
     }
 
     await db.prepare(
         `UPDATE tenant_gateways
-         SET is_active = 1, updated_at = datetime('now')
-         WHERE location_id = ? AND gateway_type = ?`
-    ).bind(locationId, gatewayType).run();
+         SET is_active = 0, updated_at = datetime('now')
+         WHERE location_id = ? AND is_active = 1`
+    ).bind(locationId).run();
 }
 
 export async function getActiveGateway(db: D1Database, locationId: string): Promise<TenantGateway | null> {
