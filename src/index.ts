@@ -287,6 +287,15 @@ router.post('/api/test-cybersource', async (request, env) => {
 
 	const result = await testCybersourceConnection({ merchantId, apiKeyId, sharedSecret, apiHost });
 	if (!result.ok) {
+		if (result.status !== 401 && result.status !== 403) {
+			return jsonResponse({
+				success: true,
+				message: `Credenciales aceptadas en ${mode.toUpperCase()}, pero la transacción de prueba fue rechazada por reglas del comercio/processor.`,
+				status: result.status,
+				response: result.body,
+			});
+		}
+
 		return jsonResponse({
 			success: false,
 			error: result.message,
@@ -1362,9 +1371,11 @@ router.get('/', async (request, env) => {
 					var merchantInput = document.getElementById(isTestMode ? 'csMerchantTest' : 'csMerchantLive');
 					var apiKeyInput = document.getElementById(isTestMode ? 'csApiKeyTest' : 'csApiKeyLive');
 					var secretInput = document.getElementById(isTestMode ? 'csSecretTest' : 'csSecretLive');
+					var isEditing = !!(editEl && editEl.style.display !== 'none');
 					return {
 						hasSaved: hasSaved,
-						shouldSend: !displayEl || (editEl && editEl.style.display !== 'none') || !hasSaved,
+						isEditing: isEditing,
+						hasDisplay: !!displayEl,
 						merchantId: merchantInput ? merchantInput.value.trim() : '',
 						apiKeyId: apiKeyInput ? apiKeyInput.value.trim() : '',
 						sharedSecret: secretInput ? secretInput.value.trim() : '',
@@ -1383,9 +1394,10 @@ router.get('/', async (request, env) => {
 					var btnTest = this;
 					var csModeValue = document.getElementById('csModeToggle').checked ? 'live' : 'test';
 					var currentState = getCybersourceState(csModeValue);
+					var shouldUseDraft = currentState.isEditing || !currentState.hasSaved;
 					var payloadTest = { locationId: locationId, mode: csModeValue };
 
-					if (currentState.shouldSend) {
+					if (shouldUseDraft) {
 						if (!currentState.merchantId || !currentState.apiKeyId || !currentState.sharedSecret) {
 							setStatus('Completa merchantId, apiKeyId y sharedSecret para probar Neonet.', 'error');
 							return;
@@ -1424,6 +1436,8 @@ router.get('/', async (request, env) => {
 				var csModeValue = document.getElementById('csModeToggle').checked ? 'live' : 'test';
 				var csTestState = getCybersourceState('test');
 				var csLiveState = getCybersourceState('live');
+				var shouldSaveTest = csModeValue === 'test' ? (csTestState.isEditing || !csTestState.hasSaved) : csTestState.isEditing;
+				var shouldSaveLive = csModeValue === 'live' ? (csLiveState.isEditing || !csLiveState.hasSaved) : csLiveState.isEditing;
 
 				var payloadCs = {
 					locationId: locationId,
@@ -1432,7 +1446,7 @@ router.get('/', async (request, env) => {
 					}
 				};
 
-				if (csTestState.shouldSend) {
+				if (shouldSaveTest) {
 					if (!csTestState.merchantId || !csTestState.apiKeyId || !csTestState.sharedSecret) {
 						setStatus('Para guardar TEST de Neonet, completa merchantId, apiKeyId y sharedSecret.', 'error');
 						return;
@@ -1444,7 +1458,7 @@ router.get('/', async (request, env) => {
 					};
 				}
 
-				if (csLiveState.shouldSend) {
+				if (shouldSaveLive) {
 					if (!csLiveState.merchantId || !csLiveState.apiKeyId || !csLiveState.sharedSecret) {
 						setStatus('Para guardar LIVE de Neonet, completa merchantId, apiKeyId y sharedSecret.', 'error');
 						return;
