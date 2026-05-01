@@ -678,9 +678,9 @@ export async function handleAdminDashboard(
         </tr>
     `).join('');
 
-    const activeTenantsForGateways = tenants.filter((t: any) => t.is_active === 1);
+    const tenantsForGateways = tenants;
 
-    const gatewayManagementRows = activeTenantsForGateways.map((t: any) => {
+    const gatewayManagementRows = tenantsForGateways.map((t: any) => {
         const tenantName = t.business_name || t.location_id;
         const gateways = gatewaysByLocation.get(t.location_id) || [];
         const gatewayBadges = gateways.length
@@ -975,8 +975,8 @@ export async function handleAdminDashboard(
         </div>
 
         <div class="section" style="margin-top:0;">
-            <h2>Pasarelas por sub-cuenta activa (${activeTenantsForGateways.length})</h2>
-            <p class="subtitle" style="margin-bottom:12px;">Hoy la principal es RecurrenteGT. Aquí podrás activar la pasarela operativa por sub-cuenta y quedará lista para futuras pasarelas.</p>
+            <h2>Pasarelas por sub-cuenta (${tenantsForGateways.length})</h2>
+            <p class="subtitle" style="margin-bottom:12px;">Hoy la principal es RecurrenteGT. Aquí puedes activar exactamente una pasarela por sub-cuenta y dejarla lista para futuras pasarelas.</p>
             <table>
                 <thead>
                     <tr>
@@ -985,7 +985,7 @@ export async function handleAdminDashboard(
                         <th>Acciones de activación</th>
                     </tr>
                 </thead>
-                <tbody>${gatewayManagementRows || '<tr><td colspan="3" style="text-align:center;padding:24px;color:#94a3b8;">No hay sub-cuentas activas</td></tr>'}</tbody>
+                <tbody>${gatewayManagementRows || '<tr><td colspan="3" style="text-align:center;padding:24px;color:#94a3b8;">No hay sub-cuentas configuradas</td></tr>'}</tbody>
             </table>
         </div>
     </div>
