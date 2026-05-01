@@ -728,7 +728,6 @@ export async function handleAdminDashboard(
                 <div class="inline-tools" style="margin:0;">
                     ${selectorHtml}
                     <button class="btn btn-success" onclick="saveSelectedGateway('${escapeHtml(t.location_id)}', this)">Guardar activa</button>
-                    <button class="btn" style="background:#334155;color:#e2e8f0;" onclick="testSelectedGateway('${escapeHtml(t.location_id)}', this)">Probar conexión</button>
                 </div>
             </td>
         </tr>`;
@@ -1126,23 +1125,6 @@ async function saveSelectedGateway(locationId, btnEl) {
         btnEl.disabled = false;
         btnEl.textContent = originalLabel || 'Guardar activa';
     }
-}
-
-async function testSelectedGateway(locationId, btnEl) {
-    var wrapper = btnEl && btnEl.parentElement ? btnEl.parentElement : null;
-    var select = wrapper ? wrapper.querySelector('.gateway-active-select') : null;
-    if (!select) {
-        showToast('No se encontró selector de pasarela', 'err');
-        return;
-    }
-
-    var gatewayType = (select.value || '').trim();
-    if (!gatewayType) {
-        showToast('Selecciona una pasarela para probar conexión', 'err');
-        return;
-    }
-
-    await testGatewayConnection(locationId, gatewayType);
 }
 
 async function testGatewayConnection(locationId, gatewayType) {
