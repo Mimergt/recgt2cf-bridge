@@ -53,6 +53,7 @@ import {
 	handleDeleteGateway,
 	handleTestGatewayConnection,
 } from './admin';
+import { testCybersourceConnection } from './cybersource';
 import {
 	upsertGhlToken,
 	getGhlToken,
@@ -245,6 +246,60 @@ router.post('/api/activate-subscription', async (request, env) => {
 
 	const status = await checkSubscriptionStatus(env, locationId, subscriptionCode);
 	return jsonResponse({ success: true, ...status });
+});
+
+router.post('/api/test-cybersource', async (request, env) => {
+	const body = await request.json() as any;
+	const locationId = (body.locationId || '').trim();
+	const mode = body.mode === 'live' ? 'live' : 'test';
+	if (!locationId) {
+		return jsonResponse({ success: false, error: 'Missing locationId' }, 400);
+	}
+
+	const token = await getGhlToken(env.DB, locationId);
+	if (!token) {
+		return jsonResponse({ success: false, error: 'App not installed on this location' }, 403);
+	}
+
+	let credentials = body.credentials as Record<string, unknown> | undefined;
+	if (!credentials) {
+		const gateways = await listTenantGateways(env.DB, locationId);
+		const gateway = gateways.find((g) => g.gateway_type === 'cybersource');
+		if (!gateway) {
+			return jsonResponse({ success: false, error: 'Neonet no está configurado en esta sub-cuenta.' }, 404);
+		}
+
+		try {
+			credentials = JSON.parse(mode === 'live' ? gateway.config_live : gateway.config_test) as Record<string, unknown>;
+		} catch {
+			credentials = {};
+		}
+	}
+
+	const merchantId = String(credentials.merchantId || '').trim();
+	const apiKeyId = String(credentials.apiKeyId || '').trim();
+	const sharedSecret = String(credentials.sharedSecret || '').trim();
+	const apiHost = mode === 'live' ? 'api.cybersource.com' : 'apitest.cybersource.com';
+
+	if (!merchantId || !apiKeyId || !sharedSecret) {
+		return jsonResponse({ success: false, error: 'Completa merchantId, apiKeyId y sharedSecret para probar Neonet.' }, 400);
+	}
+
+	const result = await testCybersourceConnection({ merchantId, apiKeyId, sharedSecret, apiHost });
+	if (!result.ok) {
+		return jsonResponse({
+			success: false,
+			error: result.message,
+			status: result.status,
+			response: result.body,
+		}, 400);
+	}
+
+	return jsonResponse({
+		success: true,
+		message: `Neonet connection OK (${mode.toUpperCase()})`,
+		status: result.status,
+	});
 });
 
 // ─── Static Assets ──────────────────────────────────────────
@@ -997,8 +1052,7 @@ router.get('/', async (request, env) => {
 					'Desde tu panel de <strong>Neonet / CyberSource</strong> obtén las credenciales de cada ambiente:<br><br>' +
 					'<strong>Merchant ID:</strong> Identificador del comercio para autenticar la cuenta.<br>' +
 					'<strong>API Key ID:</strong> Identificador de la llave usada para firmar peticiones.<br>' +
-					'<strong>Shared Secret:</strong> Se usa para la firma HTTP del backend. Mantenla privada.<br>' +
-					'<strong>API Host:</strong> Usa <code>apitest.cybersource.com</code> para pruebas y <code>api.cybersource.com</code> para producción.';
+					'<strong>Shared Secret:</strong> Se usa para la firma HTTP del backend. Mantenla privada.';
 				helpDetails.style.display = 'block';
 				return;
 			}
@@ -1030,10 +1084,6 @@ router.get('/', async (request, env) => {
 			buySubscriptionUrl = (info && info.buyUrl) || '';
 
 			var html = '';
-			html += '<div class="sub-header">' +
-				'<strong class="sub-name">' + (locationId || 'Sub-cuenta') + '</strong>' +
-				'<span class="loc-id">' + (locationId || '') + '</span>' +
-				'</div>';
 			html += '<div class="sub-gate">';
 			html += '<h3>Activa tu suscripción</h3>';
 			html += '<p>' + message + '</p>';
@@ -1102,15 +1152,9 @@ router.get('/', async (request, env) => {
 			var activeGatewayType = (tenant && tenant.active_gateway_type) || null;
       var isRecurrenteActive = activeGatewayType === 'recurrente';
       var isCybersourceActive = activeGatewayType === 'cybersource';
-      var bizName = (tenant && tenant.business_name) || '';
-
 	setGatewayPageMeta(activeGatewayType || 'recurrente');
 
-      // Sub-account header
-      var html = '<div class="sub-header">' +
-        '<strong class="sub-name">' + (bizName || locationId) + '</strong>' +
-        '<span class="loc-id">' + (locationId || '') + '</span>' +
-        '</div>';
+	      var html = '';
 
 			if (!activeGatewayType) {
 				html += '<div class="alert error">Esta sub-cuenta no tiene una pasarela activa asignada desde el admin. Actívala en el admin para mostrar su configuración aquí.</div>';
@@ -1176,15 +1220,30 @@ router.get('/', async (request, env) => {
 			} else if (isCybersourceActive) {
 				html += '<div class="section-test">' +
 					'<h3>Neonet / CyberSource (Sandbox/Live)</h3>' +
-					'<h4 style="margin:10px 0 6px;">Credenciales TEST</h4>' +
-					'<label>Merchant ID (test)</label><input id="csMerchantTest" placeholder="merchant_test" value="" />' +
-					'<small class="loc-id">Actual: ' + (csTest.merchantId || '-') + '</small>' +
-					'<label>API Key ID (test)</label><input id="csApiKeyTest" placeholder="api_key_id_test" value="" />' +
-					'<small class="loc-id">Actual: ' + (csTest.apiKeyId || '-') + '</small>' +
-					'<label>Shared Secret (test)</label><input id="csSecretTest" placeholder="shared_secret_base64_test" value="" />' +
-					'<small class="loc-id">Actual: ' + (csTest.sharedSecret || '-') + '</small>' +
-					'<label>API Host (test)</label><input id="csHostTest" placeholder="apitest.cybersource.com" value="' + (csTest.apiHost || 'apitest.cybersource.com') + '" />' +
-					'</div>' +
+					'<h4 style="margin:10px 0 6px;">Credenciales TEST</h4>';
+
+				if (cs && cs.has_test_keys) {
+					html += '<div class="key-display" id="displayCsTest">' +
+						'<label>Merchant ID (test)</label>' +
+						'<div class="masked-val">' + (csTest.merchantId || '-') + '</div>' +
+						'<label>API Key ID (test)</label>' +
+						'<div class="masked-val">' + (csTest.apiKeyId || '-') + '</div>' +
+						'<label>Shared Secret (test)</label>' +
+						'<div class="masked-val">' + (csTest.sharedSecret || '-') + '</div>' +
+						'<button type="button" class="btn-edit" onclick="window.editCybersourceKeys(&#39;test&#39;)">Editar credenciales</button>' +
+						'</div>';
+					html += '<div class="key-edit" id="editCsTest" style="display:none">' +
+						'<label>Merchant ID (test)</label><input id="csMerchantTest" placeholder="merchant_test" value="" />' +
+						'<label>API Key ID (test)</label><input id="csApiKeyTest" placeholder="api_key_id_test" value="" />' +
+						'<label>Shared Secret (test)</label><input id="csSecretTest" type="password" placeholder="shared_secret_base64_test" value="" />' +
+						'</div>';
+				} else {
+					html += '<label>Merchant ID (test)</label><input id="csMerchantTest" placeholder="merchant_test" value="" />' +
+						'<label>API Key ID (test)</label><input id="csApiKeyTest" placeholder="api_key_id_test" value="" />' +
+						'<label>Shared Secret (test)</label><input id="csSecretTest" type="password" placeholder="shared_secret_base64_test" value="" />';
+				}
+
+				html += '</div>' +
 					'<div class="toggle-row">' +
 					'<label class="switch"><input type="checkbox" id="csModeToggle"' + (csMode === 'live' ? ' checked' : '') + '><span class="slider"></span></label>' +
 					'<label>Modo LIVE <span id="csModeBadge" class="mode-badge ' + csMode + '">' + csMode.toUpperCase() + '</span></label>' +
@@ -1192,16 +1251,32 @@ router.get('/', async (request, env) => {
 					'<p class="note">Modo actual: <strong id="csModeLabel">' + (csMode === 'live' ? 'LIVE — se usan las credenciales de producción' : 'TEST — se usan las credenciales de prueba') + '</strong></p>' +
 					'<p class="note">Test guardado: ' + ((cs && cs.has_test_keys) ? 'SÍ' : 'NO') + ' | Live guardado: ' + ((cs && cs.has_live_keys) ? 'SÍ' : 'NO') + '</p>' +
 					'<div class="section-live" id="csLiveSection" style="display:' + (csMode === 'live' ? 'block' : 'none') + '">' +
-					'<h3>Credenciales LIVE</h3>' +
-					'<label>Merchant ID (live)</label><input id="csMerchantLive" placeholder="merchant_live" value="" />' +
-					'<small class="loc-id">Actual: ' + (csLive.merchantId || '-') + '</small>' +
-					'<label>API Key ID (live)</label><input id="csApiKeyLive" placeholder="api_key_id_live" value="" />' +
-					'<small class="loc-id">Actual: ' + (csLive.apiKeyId || '-') + '</small>' +
-					'<label>Shared Secret (live)</label><input id="csSecretLive" placeholder="shared_secret_base64_live" value="" />' +
-					'<small class="loc-id">Actual: ' + (csLive.sharedSecret || '-') + '</small>' +
-					'<label>API Host (live)</label><input id="csHostLive" placeholder="api.cybersource.com" value="' + (csLive.apiHost || 'api.cybersource.com') + '" />' +
-					'</div>' +
-					'<button id="saveCybersource" style="margin-top:14px;">Guardar Neonet</button>' +
+					'<h3>Credenciales LIVE</h3>';
+
+				if (cs && cs.has_live_keys) {
+					html += '<div class="key-display" id="displayCsLive">' +
+						'<label>Merchant ID (live)</label>' +
+						'<div class="masked-val">' + (csLive.merchantId || '-') + '</div>' +
+						'<label>API Key ID (live)</label>' +
+						'<div class="masked-val">' + (csLive.apiKeyId || '-') + '</div>' +
+						'<label>Shared Secret (live)</label>' +
+						'<div class="masked-val">' + (csLive.sharedSecret || '-') + '</div>' +
+						'<button type="button" class="btn-edit" onclick="window.editCybersourceKeys(&#39;live&#39;)">Editar credenciales</button>' +
+						'</div>';
+					html += '<div class="key-edit" id="editCsLive" style="display:none">' +
+						'<label>Merchant ID (live)</label><input id="csMerchantLive" placeholder="merchant_live" value="" />' +
+						'<label>API Key ID (live)</label><input id="csApiKeyLive" placeholder="api_key_id_live" value="" />' +
+						'<label>Shared Secret (live)</label><input id="csSecretLive" type="password" placeholder="shared_secret_base64_live" value="" />' +
+						'</div>';
+				} else {
+					html += '<label>Merchant ID (live)</label><input id="csMerchantLive" placeholder="merchant_live" value="" />' +
+						'<label>API Key ID (live)</label><input id="csApiKeyLive" placeholder="api_key_id_live" value="" />' +
+						'<label>Shared Secret (live)</label><input id="csSecretLive" type="password" placeholder="shared_secret_base64_live" value="" />';
+				}
+
+				html += '</div>' +
+					'<button id="testCybersource" type="button" class="btn-secondary" style="margin-top:14px;">Probar credenciales</button>' +
+					'<button id="saveCybersource" style="margin-top:10px;">Guardar Neonet</button>' +
 					'<div id="validatingCs" style="display:none;text-align:center;margin-top:12px;color:#94a3b8;font-size:0.85rem;">Guardando configuración Neonet...</div>' +
 					'</div>';
 			}
@@ -1279,6 +1354,23 @@ router.get('/', async (request, env) => {
 			}
 
 			if (isCybersourceActive) {
+				function getCybersourceState(targetMode) {
+					var isTestMode = targetMode === 'test';
+					var hasSaved = isTestMode ? !!(cs && cs.has_test_keys) : !!(cs && cs.has_live_keys);
+					var displayEl = document.getElementById(isTestMode ? 'displayCsTest' : 'displayCsLive');
+					var editEl = document.getElementById(isTestMode ? 'editCsTest' : 'editCsLive');
+					var merchantInput = document.getElementById(isTestMode ? 'csMerchantTest' : 'csMerchantLive');
+					var apiKeyInput = document.getElementById(isTestMode ? 'csApiKeyTest' : 'csApiKeyLive');
+					var secretInput = document.getElementById(isTestMode ? 'csSecretTest' : 'csSecretLive');
+					return {
+						hasSaved: hasSaved,
+						shouldSend: !displayEl || (editEl && editEl.style.display !== 'none') || !hasSaved,
+						merchantId: merchantInput ? merchantInput.value.trim() : '',
+						apiKeyId: apiKeyInput ? apiKeyInput.value.trim() : '',
+						sharedSecret: secretInput ? secretInput.value.trim() : '',
+					};
+				}
+
 				document.getElementById('csModeToggle').addEventListener('change', function() {
 					var isLiveCs = this.checked;
 					document.getElementById('csLiveSection').style.display = isLiveCs ? 'block' : 'none';
@@ -1287,19 +1379,51 @@ router.get('/', async (request, env) => {
 					document.getElementById('csModeLabel').innerHTML = isLiveCs ? 'LIVE — se usan las credenciales de producción' : 'TEST — se usan las credenciales de prueba';
 				});
 
+				document.getElementById('testCybersource').addEventListener('click', function() {
+					var btnTest = this;
+					var csModeValue = document.getElementById('csModeToggle').checked ? 'live' : 'test';
+					var currentState = getCybersourceState(csModeValue);
+					var payloadTest = { locationId: locationId, mode: csModeValue };
+
+					if (currentState.shouldSend) {
+						if (!currentState.merchantId || !currentState.apiKeyId || !currentState.sharedSecret) {
+							setStatus('Completa merchantId, apiKeyId y sharedSecret para probar Neonet.', 'error');
+							return;
+						}
+						payloadTest.credentials = {
+							merchantId: currentState.merchantId,
+							apiKeyId: currentState.apiKeyId,
+							sharedSecret: currentState.sharedSecret,
+						};
+					}
+
+					btnTest.disabled = true;
+					btnTest.textContent = 'Probando...';
+
+					fetch('/api/test-cybersource', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(payloadTest)
+					})
+					.then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+					.then(function(res) {
+						btnTest.disabled = false;
+						btnTest.textContent = 'Probar credenciales';
+						if (!res.ok || !res.data.success) throw new Error(res.data.error || 'Error probando Neonet');
+						setStatus(res.data.message || 'Conexión con Neonet verificada.', 'success');
+					})
+					.catch(function(e) {
+						btnTest.disabled = false;
+						btnTest.textContent = 'Probar credenciales';
+						setStatus(e.message || 'Error probando credenciales de Neonet', 'error');
+					});
+				});
+
 				document.getElementById('saveCybersource').addEventListener('click', function() {
 				var btnCs = this;
 				var csModeValue = document.getElementById('csModeToggle').checked ? 'live' : 'test';
-
-				var csMerchantTest = (document.getElementById('csMerchantTest').value || '').trim();
-				var csApiKeyTest = (document.getElementById('csApiKeyTest').value || '').trim();
-				var csSecretTest = (document.getElementById('csSecretTest').value || '').trim();
-				var csHostTest = (document.getElementById('csHostTest').value || 'apitest.cybersource.com').trim();
-
-				var csMerchantLive = (document.getElementById('csMerchantLive').value || '').trim();
-				var csApiKeyLive = (document.getElementById('csApiKeyLive').value || '').trim();
-				var csSecretLive = (document.getElementById('csSecretLive').value || '').trim();
-				var csHostLive = (document.getElementById('csHostLive').value || 'api.cybersource.com').trim();
+				var csTestState = getCybersourceState('test');
+				var csLiveState = getCybersourceState('live');
 
 				var payloadCs = {
 					locationId: locationId,
@@ -1308,29 +1432,27 @@ router.get('/', async (request, env) => {
 					}
 				};
 
-				if (csMerchantTest || csApiKeyTest || csSecretTest) {
-					if (!csMerchantTest || !csApiKeyTest || !csSecretTest) {
+				if (csTestState.shouldSend) {
+					if (!csTestState.merchantId || !csTestState.apiKeyId || !csTestState.sharedSecret) {
 						setStatus('Para guardar TEST de Neonet, completa merchantId, apiKeyId y sharedSecret.', 'error');
 						return;
 					}
 					payloadCs.cybersource.test = {
-						merchantId: csMerchantTest,
-						apiKeyId: csApiKeyTest,
-						sharedSecret: csSecretTest,
-						apiHost: csHostTest || 'apitest.cybersource.com'
+						merchantId: csTestState.merchantId,
+						apiKeyId: csTestState.apiKeyId,
+						sharedSecret: csTestState.sharedSecret
 					};
 				}
 
-				if (csMerchantLive || csApiKeyLive || csSecretLive) {
-					if (!csMerchantLive || !csApiKeyLive || !csSecretLive) {
+				if (csLiveState.shouldSend) {
+					if (!csLiveState.merchantId || !csLiveState.apiKeyId || !csLiveState.sharedSecret) {
 						setStatus('Para guardar LIVE de Neonet, completa merchantId, apiKeyId y sharedSecret.', 'error');
 						return;
 					}
 					payloadCs.cybersource.live = {
-						merchantId: csMerchantLive,
-						apiKeyId: csApiKeyLive,
-						sharedSecret: csSecretLive,
-						apiHost: csHostLive || 'api.cybersource.com'
+						merchantId: csLiveState.merchantId,
+						apiKeyId: csLiveState.apiKeyId,
+						sharedSecret: csLiveState.sharedSecret
 					};
 				}
 
@@ -1425,6 +1547,13 @@ router.get('/', async (request, env) => {
       if (displayEl) displayEl.style.display = 'none';
       if (editEl) editEl.style.display = 'block';
     };
+
+		window.editCybersourceKeys = function(type) {
+			var displayEl = document.getElementById(type === 'test' ? 'displayCsTest' : 'displayCsLive');
+			var editEl = document.getElementById(type === 'test' ? 'editCsTest' : 'editCsLive');
+			if (displayEl) displayEl.style.display = 'none';
+			if (editEl) editEl.style.display = 'block';
+		};
 
     init();
   </script>
