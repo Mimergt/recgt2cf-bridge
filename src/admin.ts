@@ -679,36 +679,44 @@ export async function handleAdminDashboard(
     `).join('');
 
     const tenantsForGateways = tenants;
+    const supportedGatewayTypes: Array<{ type: GatewayType; label: string }> = [
+        { type: 'recurrente', label: 'Recurrente' },
+        { type: 'cybersource', label: 'Neonet' },
+    ];
 
     const gatewayManagementRows = tenantsForGateways.map((t: any) => {
         const tenantName = t.business_name || t.location_id;
         const gateways = gatewaysByLocation.get(t.location_id) || [];
-        const gatewayBadges = gateways.length
-            ? gateways.map((g) => {
-                const activeBadge = g.is_active === 1
-                    ? '<span class="badge ok">Activa</span>'
-                    : '<span class="badge off">Inactiva</span>';
-                const modeBadge = g.mode === 'live'
-                    ? '<span class="badge live">LIVE</span>'
-                    : '<span class="badge test">TEST</span>';
-                const type = escapeHtml(g.gateway_type);
-                const fallbackName = g.gateway_type === 'recurrente' ? 'RecurrenteGT' : g.gateway_type;
-                const label = escapeHtml(g.display_name || fallbackName);
-                return `<div style="margin-bottom:6px;"><strong>${label}</strong> <small class="loc-id">(${type})</small> ${modeBadge} ${activeBadge}</div>`;
-            }).join('')
-            : '<span class="badge warn">Sin pasarelas configuradas</span>';
+        const gatewaysByType = new Map<string, { gateway_type: string; mode: string; is_active: number; display_name: string }>();
+        for (const g of gateways) {
+            gatewaysByType.set(g.gateway_type, g);
+        }
 
-        const selectorHtml = gateways.length
-            ? (() => {
-                const options = ['<option value="">Sin activa</option>'];
-                for (const g of gateways) {
-                    const fallbackName = g.gateway_type === 'recurrente' ? 'RecurrenteGT' : g.gateway_type;
-                    const label = escapeHtml(g.display_name || fallbackName);
-                    options.push(`<option value="${escapeHtml(g.gateway_type)}" ${g.is_active === 1 ? 'selected' : ''}>${label}</option>`);
-                }
-                return `<select class="group-select gateway-active-select">${options.join('')}</select>`;
-            })()
-            : '<span class="badge off">Sin pasarelas para activar</span>';
+        const gatewayBadges = supportedGatewayTypes.map((meta) => {
+            const gateway = gatewaysByType.get(meta.type);
+            if (!gateway) {
+                return `<div style="margin-bottom:6px;"><strong>${meta.label}</strong> <small class="loc-id">(${escapeHtml(meta.type)})</small> <span class="badge warn">No configurada</span></div>`;
+            }
+            const activeBadge = gateway.is_active === 1
+                ? '<span class="badge ok">Activa</span>'
+                : '<span class="badge off">Inactiva</span>';
+            const modeBadge = gateway.mode === 'live'
+                ? '<span class="badge live">LIVE</span>'
+                : '<span class="badge test">TEST</span>';
+            return `<div style="margin-bottom:6px;"><strong>${meta.label}</strong> <small class="loc-id">(${escapeHtml(meta.type)})</small> ${modeBadge} ${activeBadge}</div>`;
+        }).join('');
+
+        const selectorHtml = (() => {
+            const options = ['<option value="">Sin activa</option>'];
+            for (const meta of supportedGatewayTypes) {
+                const gateway = gatewaysByType.get(meta.type);
+                const isSelected = gateway ? gateway.is_active === 1 : false;
+                const disabledAttr = gateway ? '' : ' disabled';
+                const suffix = gateway ? '' : ' (no configurada)';
+                options.push(`<option value="${escapeHtml(meta.type)}" ${isSelected ? 'selected' : ''}${disabledAttr}>${meta.label}${suffix}</option>`);
+            }
+            return `<select class="group-select gateway-active-select">${options.join('')}</select>`;
+        })();
 
         return `
         <tr>
