@@ -958,10 +958,10 @@ router.get('/', async (request, env) => {
       <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iQ2FwYV8yIiBkYXRhLW5hbWU9IkNhcGEgMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmlld0JveD0iMCAwIDE5MC4wNyAxOTIuNjEiPgogIDxkZWZzPgogICAgPHN0eWxlPgogICAgICAuY2xzLTEgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTUpOwogICAgICB9CgogICAgICAuY2xzLTIgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTYpOwogICAgICB9CgogICAgICAuY2xzLTMgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTQpOwogICAgICB9CgogICAgICAuY2xzLTQgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTMpOwogICAgICB9CgogICAgICAuY2xzLTUgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50LTIpOwogICAgICB9CgogICAgICAuY2xzLTYgewogICAgICAgIGZpbGw6IHVybCgjbGluZWFyLWdyYWRpZW50KTsKICAgICAgfQoKICAgICAgLmNscy03IHsKICAgICAgICBmaWxsOiAjMmEyMDJiOwogICAgICB9CgogICAgICAuY2xzLTgsIC5jbHMtOSB7CiAgICAgICAgZmlsbDogIzJhMjAyYjsKICAgICAgfQoKICAgICAgLmNscy0xMCB7CiAgICAgICAgZmlsbDogI2VlMmY2NTsKICAgICAgfQoKICAgICAgLmNscy05IHsKICAgICAgICBmb250LWZhbWlseTogT1RDVW5kZXJncm91bmQtUmVndWxhciwgJ09UQyBVbmRlcmdyb3VuZCc7CiAgICAgICAgZm9udC1zaXplOiA3MS43N3B4OwogICAgICAgIGxldHRlci1zcGFjaW5nOiAtLjA1ZW07CiAgICAgIH0KICAgIDwvc3R5bGU+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImxpbmVhci1ncmFkaWVudCIgeDE9IjEyNi4xMyIgeTE9IjM1LjgzIiB4Mj0iMTU1LjYyIiB5Mj0iMzUuODMiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZWMzMDY1Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iLjkxIiBzdG9wLWNvbG9yPSIjZWU1MDRlIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsaW5lYXItZ3JhZGllbnQtMiIgeDE9IjExOC45OSIgeTE9IjQzLjk1IiB4Mj0iMTI0LjAyIiB5Mj0iNDMuOTUiIHhsaW5rOmhyZWY9IiNsaW5lYXItZ3JhZGllbnQiLz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ibGluZWFyLWdyYWRpZW50LTMiIHgxPSIxMjAuOTEiIHkxPSI1NC44NyIgeDI9IjE1MC41NiIgeTI9IjU0Ljg3IiB4bGluazpocmVmPSIjbGluZWFyLWdyYWRpZW50Ii8+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImxpbmVhci1ncmFkaWVudC00IiB4MT0iMTUyLjc3IiB5MT0iNDYuODIiIHgyPSIxNTcuNzQiIHkyPSI0Ni44MiIgeGxpbms6aHJlZj0iI2xpbmVhci1ncmFkaWVudCIvPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsaW5lYXItZ3JhZGllbnQtNSIgeDE9IjExOS44OCIgeTE9IjMzLjk0IiB4Mj0iMTMxLjMiIHkyPSIzMy45NCIgeGxpbms6aHJlZj0iI2xpbmVhci1ncmFkaWVudCIvPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsaW5lYXItZ3JhZGllbnQtNiIgeDE9IjE0NS4zOSIgeTE9IjU2LjY0IiB4Mj0iMTU2LjkyIiB5Mj0iNTYuNjQiIHhsaW5rOmhyZWY9IiNsaW5lYXItZ3JhZGllbnQiLz4KICA8L2RlZnM+CiAgPGcgaWQ9IkNyb3BfTWFya3MiIGRhdGEtbmFtZT0iQ3JvcCBNYXJrcyI+CiAgICA8Zz4KICAgICAgPGc+CiAgICAgICAgPHBhdGggY2xhc3M9ImNscy04IiBkPSJNMTcuNTYsNWgxNTYuNDJjNi4xMiwwLDExLjEsNC45NywxMS4xLDExLjF2MTU4Ljk2YzAsOS42OS03Ljg3LDE3LjU2LTE3LjU2LDE3LjU2SDE3LjU2Yy05LjY5LDAtMTcuNTYtNy44Ny0xNy41Ni0xNy41NlYyMi41NkMwLDEyLjg3LDcuODcsNSwxNy41Niw1WiIvPgogICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMTAiIGQ9Ik0yMi41NiwwaDE1Ni40MmM2LjEyLDAsMTEuMSw0Ljk3LDExLjEsMTEuMXYxNTguOTZjMCw5LjY5LTcuODcsMTcuNTYtMTcuNTYsMTcuNTZIMjIuNTZjLTkuNjksMC0xNy41Ni03Ljg3LTE3LjU2LTE3LjU2VjE3LjU2QzUsNy44NywxMi44NywwLDIyLjU2LDBaIi8+CiAgICAgICAgPGc+CiAgICAgICAgICA8Y2lyY2xlIGNsYXNzPSJjbHMtNyIgY3g9IjEzOC4zNyIgY3k9IjQ1LjMyIiByPSIyMS4xOCIvPgogICAgICAgICAgPGc+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNiIgZD0iTTEzMC41MSw0My44M2M3LjI3LTIuODUsMTAuNzYtNS41OCwxMC43Ni01LjU4LDAsMCw2Ljk4LTUuMjgsMTQuMzYtMS43OS0yLjM4LTQuNjMtNi41OC04LjE4LTExLjY1LTkuNzEtLjIyLDMuODctMS42OCw3LjUtNC42MSwxMC41LTMuMzksMy40OC04LjEzLDUuNDItMTMuMjMsNS44Mi4wOC43MS4yLDEuMzMuMzIsMS44NSwxLjM0LS4yMiwyLjcyLS41Niw0LjA1LTEuMDlaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNSIgZD0iTTEyNC4wMiw0NS4xOGMtLjAyLS42Mi0uMDYtMS4zMi0uMTEtMi4wNC0xLjU3LS4wMS0zLjE2LS4xNy00Ljc1LS40Ny0uMTEuNzgtLjE3LDEuNTgtLjE4LDIuMzksMS4yNi4xNCwzLjA0LjI1LDUuMDMuMTJaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNCIgZD0iTTE0MC41Niw0OS4yNmwtNi45NCw0LjMycy01LjM5LDMuNjctMTIuNzEuMTdjMi4zNSw0Ljg2LDYuNjgsOC41OSwxMS45MywxMC4xNS43Mi01LjcyLDMuNTUtMTAuNjUsOC43NS0xMy43LDIuNzEtMS41OSw1Ljc4LTIuNDcsOC45Ny0yLjctLjA3LS42My0uMTctMS4xNy0uMjctMS42NS0yLjg1LjM4LTYuMTYsMS4zNi05LjcyLDMuNDFaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTE1Ny43NCw0Ni4xYy0xLjI2LS4yNy0yLjk1LS41LTQuOTctLjQ1LjA0LjU2LjA5LDEuMTcuMTYsMS44LDEuNTQuMDQsMy4wOS4yMyw0LjY0LjU2LjA5LS42My4xNC0xLjI2LjE3LTEuOTFaIi8+CiAgICAgICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTEyMS44NCwzNi4yNHMzLjQxLS43MSw0LjA1LDMuN2MxLjM1LS4zLDIuNTMtLjkyLDMuNDYtMS44NywyLjMzLTIuNCwyLjUxLTYuMzQuODUtMTAuMzQtNC45LDIuMjgtOC42OCw2LjU0LTEwLjMyLDExLjc2LDEuMjcuNDEsMi41Mi42MywzLjcxLjY3LS4zMi0yLjAzLS44Ni0zLjczLTEuNzUtMy45MVoiLz4KICAgICAgICAgICAgPHBhdGggY2xhc3M9ImNscy0yIiBkPSJNMTU1LjIzLDU0LjM2cy0zLjY1LjY2LTQuNC0zLjZjLTEuMTkuMzItMi4yNy44My0zLjExLDEuNDQtMi45OSwyLjIxLTIuNzYsNS45NC0xLjIyLDEwLjcsNC45Ny0yLjMsOC44LTYuNjQsMTAuNDEtMTEuOTUtMS4xMi0uNDUtMi4zNS0uNjItMy41Ny0uNTguMzksMi4wNi45OCwzLjc5LDEuODgsMy45OFoiLz4KICAgICAgICAgIDwvZz4KICAgICAgICA8L2c+CiAgICAgIDwvZz4KICAgICAgPHBhdGggY2xhc3M9ImNscy04IiBkPSJNMTAyLjE1LDI0Ljg1djYzLjhjMCw1LjgzLTYuMDksOS45OC0xNC42Nyw5Ljk4aC00MC43djY2LjgxaC0yNy42OVYxNC44N2g2OC4zOGM4LjU4LDAsMTQuNjcsNC4xNCwxNC42Nyw5Ljk4Wk03NC40NywzNS4zOWMwLTEuODgtMi40OS0zLjU4LTUuMjYtMy41OGgtMjIuNDJ2NDkuODhoMjIuNDJjMi43NywwLDUuMjYtMS42OSw1LjI2LTMuNTh2LTQyLjcyWiIvPgogICAgICA8dGV4dCBjbGFzcz0iY2xzLTkiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDUwLjYyIDE2NS4yNCkgc2NhbGUoMi4xNyAxKSI+PHRzcGFuIHg9IjAiIHk9IjAiPkFZPC90c3Bhbj48L3RleHQ+CiAgICA8L2c+CiAgPC9nPgo8L3N2Zz4=" alt="EpicPay" style="height:72px;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.3));">
     </div>
     <div class="card">
-      <h1>Configuración Recurrente</h1>
-      <details>
-        <summary>¿Dónde encuentro las llaves?</summary>
-        <div class="help-content">
+			<h1 id="pageTitle">Configuración Recurrente</h1>
+			<details id="helpDetails">
+				<summary id="helpSummary">¿Dónde encuentro las llaves?</summary>
+				<div id="helpContent" class="help-content">
           Desde tu dashboard de <strong>Recurrente</strong>, ve a <strong>Configuración &gt; API</strong>. Ahí encontrarás:<br><br>
           <strong>API Key (pública):</strong> Se usa en el frontend para crear checkouts.<br>
           <strong>Secret Key (privada):</strong> Se usa en el backend para operaciones sensibles. Nunca la expongas en el frontend.<br><br>
@@ -979,8 +979,40 @@ router.get('/', async (request, env) => {
   <script>
     var content = document.getElementById('content');
     var oauthSection = document.getElementById('oauthSection');
+		var pageTitle = document.getElementById('pageTitle');
+		var helpDetails = document.getElementById('helpDetails');
+		var helpSummary = document.getElementById('helpSummary');
+		var helpContent = document.getElementById('helpContent');
     var locationId = '${safeLocationId}' || null;
 		var buySubscriptionUrl = '';
+
+		function setGatewayPageMeta(gatewayType) {
+			if (!pageTitle || !helpSummary || !helpContent || !helpDetails) return;
+
+			if (gatewayType === 'cybersource') {
+				pageTitle.textContent = 'Configuración Neonet';
+				document.title = 'EpicPay - Configuración Neonet';
+				helpSummary.textContent = '¿Dónde encuentro las credenciales de Neonet?';
+				helpContent.innerHTML =
+					'Desde tu panel de <strong>Neonet / CyberSource</strong> obtén las credenciales de cada ambiente:<br><br>' +
+					'<strong>Merchant ID:</strong> Identificador del comercio para autenticar la cuenta.<br>' +
+					'<strong>API Key ID:</strong> Identificador de la llave usada para firmar peticiones.<br>' +
+					'<strong>Shared Secret:</strong> Se usa para la firma HTTP del backend. Mantenla privada.<br>' +
+					'<strong>API Host:</strong> Usa <code>apitest.cybersource.com</code> para pruebas y <code>api.cybersource.com</code> para producción.';
+				helpDetails.style.display = 'block';
+				return;
+			}
+
+			pageTitle.textContent = 'Configuración Recurrente';
+			document.title = 'EpicPay - Configuración Recurrente';
+			helpSummary.textContent = '¿Dónde encuentro las llaves?';
+			helpContent.innerHTML =
+				'Desde tu dashboard de <strong>Recurrente</strong>, ve a <strong>Configuración &gt; API</strong>. Ahí encontrarás:<br><br>' +
+				'<strong>API Key (pública):</strong> Se usa en el frontend para crear checkouts.<br>' +
+				'<strong>Secret Key (privada):</strong> Se usa en el backend para operaciones sensibles. Nunca la expongas en el frontend.<br><br>' +
+				'También tendrás acceso a un ambiente de pruebas (sandbox) con credenciales separadas para que puedas probar sin procesar pagos reales.';
+			helpDetails.style.display = 'block';
+		}
 
     function setStatus(message, type) {
       var existing = document.getElementById('status');
@@ -993,6 +1025,7 @@ router.get('/', async (request, env) => {
     }
 
 		function renderSubscriptionGate(info) {
+			setGatewayPageMeta('recurrente');
 			var message = (info && info.message) || 'Esta sub-cuenta no tiene suscripción activa aún.';
 			buySubscriptionUrl = (info && info.buyUrl) || '';
 
@@ -1071,6 +1104,8 @@ router.get('/', async (request, env) => {
       var isCybersourceActive = activeGatewayType === 'cybersource';
       var bizName = (tenant && tenant.business_name) || '';
 
+	setGatewayPageMeta(activeGatewayType || 'recurrente');
+
       // Sub-account header
       var html = '<div class="sub-header">' +
         '<strong class="sub-name">' + (bizName || locationId) + '</strong>' +
@@ -1141,12 +1176,6 @@ router.get('/', async (request, env) => {
 			} else if (isCybersourceActive) {
 				html += '<div class="section-test">' +
 					'<h3>Neonet / CyberSource (Sandbox/Live)</h3>' +
-					'<label>Modo Neonet</label>' +
-					'<select id="csMode" style="width:100%;padding:10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;">' +
-					'<option value="test"' + (csMode === 'test' ? ' selected' : '') + '>TEST</option>' +
-					'<option value="live"' + (csMode === 'live' ? ' selected' : '') + '>LIVE</option>' +
-					'</select>' +
-					'<p class="note">Test guardado: ' + ((cs && cs.has_test_keys) ? 'SÍ' : 'NO') + ' | Live guardado: ' + ((cs && cs.has_live_keys) ? 'SÍ' : 'NO') + '</p>' +
 					'<h4 style="margin:10px 0 6px;">Credenciales TEST</h4>' +
 					'<label>Merchant ID (test)</label><input id="csMerchantTest" placeholder="merchant_test" value="" />' +
 					'<small class="loc-id">Actual: ' + (csTest.merchantId || '-') + '</small>' +
@@ -1155,7 +1184,15 @@ router.get('/', async (request, env) => {
 					'<label>Shared Secret (test)</label><input id="csSecretTest" placeholder="shared_secret_base64_test" value="" />' +
 					'<small class="loc-id">Actual: ' + (csTest.sharedSecret || '-') + '</small>' +
 					'<label>API Host (test)</label><input id="csHostTest" placeholder="apitest.cybersource.com" value="' + (csTest.apiHost || 'apitest.cybersource.com') + '" />' +
-					'<h4 style="margin:14px 0 6px;">Credenciales LIVE</h4>' +
+					'</div>' +
+					'<div class="toggle-row">' +
+					'<label class="switch"><input type="checkbox" id="csModeToggle"' + (csMode === 'live' ? ' checked' : '') + '><span class="slider"></span></label>' +
+					'<label>Modo LIVE <span id="csModeBadge" class="mode-badge ' + csMode + '">' + csMode.toUpperCase() + '</span></label>' +
+					'</div>' +
+					'<p class="note">Modo actual: <strong id="csModeLabel">' + (csMode === 'live' ? 'LIVE — se usan las credenciales de producción' : 'TEST — se usan las credenciales de prueba') + '</strong></p>' +
+					'<p class="note">Test guardado: ' + ((cs && cs.has_test_keys) ? 'SÍ' : 'NO') + ' | Live guardado: ' + ((cs && cs.has_live_keys) ? 'SÍ' : 'NO') + '</p>' +
+					'<div class="section-live" id="csLiveSection" style="display:' + (csMode === 'live' ? 'block' : 'none') + '">' +
+					'<h3>Credenciales LIVE</h3>' +
 					'<label>Merchant ID (live)</label><input id="csMerchantLive" placeholder="merchant_live" value="" />' +
 					'<small class="loc-id">Actual: ' + (csLive.merchantId || '-') + '</small>' +
 					'<label>API Key ID (live)</label><input id="csApiKeyLive" placeholder="api_key_id_live" value="" />' +
@@ -1163,6 +1200,7 @@ router.get('/', async (request, env) => {
 					'<label>Shared Secret (live)</label><input id="csSecretLive" placeholder="shared_secret_base64_live" value="" />' +
 					'<small class="loc-id">Actual: ' + (csLive.sharedSecret || '-') + '</small>' +
 					'<label>API Host (live)</label><input id="csHostLive" placeholder="api.cybersource.com" value="' + (csLive.apiHost || 'api.cybersource.com') + '" />' +
+					'</div>' +
 					'<button id="saveCybersource" style="margin-top:14px;">Guardar Neonet</button>' +
 					'<div id="validatingCs" style="display:none;text-align:center;margin-top:12px;color:#94a3b8;font-size:0.85rem;">Guardando configuración Neonet...</div>' +
 					'</div>';
@@ -1241,9 +1279,17 @@ router.get('/', async (request, env) => {
 			}
 
 			if (isCybersourceActive) {
+				document.getElementById('csModeToggle').addEventListener('change', function() {
+					var isLiveCs = this.checked;
+					document.getElementById('csLiveSection').style.display = isLiveCs ? 'block' : 'none';
+					document.getElementById('csModeBadge').className = 'mode-badge ' + (isLiveCs ? 'live' : 'test');
+					document.getElementById('csModeBadge').textContent = isLiveCs ? 'LIVE' : 'TEST';
+					document.getElementById('csModeLabel').innerHTML = isLiveCs ? 'LIVE — se usan las credenciales de producción' : 'TEST — se usan las credenciales de prueba';
+				});
+
 				document.getElementById('saveCybersource').addEventListener('click', function() {
 				var btnCs = this;
-				var csModeValue = (document.getElementById('csMode').value || 'test').trim();
+				var csModeValue = document.getElementById('csModeToggle').checked ? 'live' : 'test';
 
 				var csMerchantTest = (document.getElementById('csMerchantTest').value || '').trim();
 				var csApiKeyTest = (document.getElementById('csApiKeyTest').value || '').trim();
